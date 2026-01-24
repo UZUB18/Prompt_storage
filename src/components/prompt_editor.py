@@ -325,6 +325,13 @@ class PromptEditor(ctk.CTkFrame):
         self.current_prompt.update()
         self.on_save(self.current_prompt)
 
+    def save_current_prompt(self) -> bool:
+        """Save the current prompt and return True if saved."""
+        if not self.current_prompt:
+            return False
+        self._on_save()
+        return True
+
     def _on_delete(self):
         if self.current_prompt:
             self.on_delete(self.current_prompt.id)

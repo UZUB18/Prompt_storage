@@ -3,12 +3,15 @@ import customtkinter as ctk
 from tkinter import filedialog
 from typing import Optional
 from datetime import datetime
+from pathlib import Path
+import shutil
 
 from .models import Prompt, Category
 from .storage import Storage
+from .config import get_data_dir, set_data_dir
 from .components.prompt_list import PromptList
 from .components.prompt_editor import PromptEditor
-from .components.dialogs import NewPromptDialog
+from .components.dialogs import NewPromptDialog, UnsavedChangesDialog, RenamePromptDialog
 from .components.toast import Toast
 
 
@@ -48,15 +51,19 @@ class PromptLibraryApp(ctk.CTk):
         self.configure(fg_color=self.COLORS["bg"])
 
         # State
-        self.storage = Storage()
+        data_dir = get_data_dir()
+        self.storage = Storage(data_dir=data_dir) if data_dir else Storage()
         self.prompts = self.storage.load_prompts()
         self.current_prompt: Optional[Prompt] = None
         self.has_unsaved_changes = False
         self.active_filter = "All"
+        self._search_after_id = None
 
         # Build UI
         self._build_ui()
         self._refresh_list()
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        self._bind_shortcuts()
 
     def _build_ui(self):
         """Build the application UI."""
@@ -81,7 +88,7 @@ class PromptLibraryApp(ctk.CTk):
         
         # Use grid layout for sidebar contents
         sidebar.grid_columnconfigure(0, weight=1)
-        sidebar.grid_rowconfigure(4, weight=1)  # Prompt list expands
+        sidebar.grid_rowconfigure(5, weight=1)  # Prompt list expands
 
         # Sidebar right border (subtle)
         border_frame = ctk.CTkFrame(
@@ -118,23 +125,45 @@ class PromptLibraryApp(ctk.CTk):
         )
         new_btn.pack(side="right")
 
-        # Row 1: Search field
+        # Row 1: Search field + clear button
+        search_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+        search_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
+        search_frame.grid_columnconfigure(0, weight=1)
+
+        self.search_entry_var = ctk.StringVar()
         self.search_entry = ctk.CTkEntry(
-            sidebar,
+            search_frame,
             height=36,
-            placeholder_text="🔍 Search...",
+            placeholder_text="?? Search...",
             font=ctk.CTkFont(family="Segoe UI", size=13),
             fg_color=self.COLORS["surface"],
             border_color=self.COLORS["border"],
             border_width=1,
             corner_radius=10,
             text_color=self.COLORS["text_primary"],
+            textvariable=self.search_entry_var,
         )
-        self.search_entry.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
+        self.search_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self.search_entry.bind("<KeyRelease>", self._on_search)
 
-        # Row 2: Segmented filter control (compact)
-        filter_container = ctk.CTkFrame(
+        self.clear_search_btn = ctk.CTkButton(
+            search_frame,
+            text="×",
+            width=32,
+            height=32,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            fg_color=self.COLORS["surface"],
+            hover_color=self.COLORS["border"],
+            text_color=self.COLORS["text_muted"],
+            border_width=1,
+            border_color=self.COLORS["border"],
+            command=self._clear_search,
+            state="disabled",
+        )
+        self.clear_search_btn.grid(row=0, column=1)
+
+        # Row 2: Segmented filter control (compact)        filter_container = ctk.CTkFrame(
             sidebar,
             fg_color="#E5E5EA",
             corner_radius=8,
@@ -170,31 +199,66 @@ class PromptLibraryApp(ctk.CTk):
             btn.grid(row=0, column=i, sticky="ew", padx=2, pady=2)
             self.filter_buttons[display_name] = btn
 
-        # Row 3: Count label
+        # Row 3: Sort options
+        sort_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+        sort_frame.grid(row=3, column=0, sticky="ew", padx=16, pady=(0, 8))
+        sort_frame.grid_columnconfigure(1, weight=1)
+
+        sort_label = ctk.CTkLabel(
+            sort_frame,
+            text="SORT",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color=self.COLORS["text_muted"],
+        )
+        sort_label.grid(row=0, column=0, sticky="w", padx=(4, 8))
+
+        self.sort_var = ctk.StringVar(value="Recently updated")
+        self.sort_menu = ctk.CTkOptionMenu(
+            sort_frame,
+            values=["Recently updated", "Name A->Z", "Created"],
+            variable=self.sort_var,
+            height=30,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=self.COLORS["surface"],
+            text_color=self.COLORS["text_primary"],
+            button_color=self.COLORS["accent"],
+            button_hover_color=self.COLORS["accent_hover"],
+            dropdown_fg_color=self.COLORS["surface"],
+            dropdown_text_color=self.COLORS["text_primary"],
+            dropdown_hover_color=self.COLORS["accent_glow"],
+            corner_radius=8,
+            command=lambda _: self._on_sort_change(),
+        )
+        self.sort_menu.grid(row=0, column=1, sticky="ew")
+
+        # Row 4: Count label
         self.count_label = ctk.CTkLabel(
             sidebar,
             text="0 PROMPTS",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color=self.COLORS["text_muted"],
         )
-        self.count_label.grid(row=3, column=0, sticky="w", padx=20, pady=(0, 6))
+        self.count_label.grid(row=4, column=0, sticky="w", padx=20, pady=(0, 6))
 
-        # Row 4: Prompt list (EXPANDS)
+        # Row 5: Prompt list (EXPANDS)
         self.prompt_list = PromptList(
             sidebar,
             on_select=self._on_prompt_select,
+            on_copy=self._on_prompt_list_copy,
+            on_rename=self._on_prompt_list_rename,
             colors=self.COLORS,
         )
-        self.prompt_list.grid(row=4, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self.prompt_list.grid(row=5, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self.prompt_list.set_sort(self.sort_var.get())
 
-        # Row 5: Footer actions
+        # Row 6: Footer actions
         footer = ctk.CTkFrame(
             sidebar, 
             fg_color=self.COLORS["sidebar_bg"],
             corner_radius=0,
             height=56,
         )
-        footer.grid(row=5, column=0, sticky="ew")
+        footer.grid(row=6, column=0, sticky="ew")
         footer.grid_propagate(False)
 
         # Top border for footer
@@ -206,7 +270,7 @@ class PromptLibraryApp(ctk.CTk):
 
         import_btn = ctk.CTkButton(
             btn_container,
-            text="↑ Import",
+            text="â†‘ Import",
             height=36,
             corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=12),
@@ -221,7 +285,7 @@ class PromptLibraryApp(ctk.CTk):
 
         export_btn = ctk.CTkButton(
             btn_container,
-            text="↓ Export",
+            text="â†“ Export",
             height=36,
             corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=12),
@@ -233,6 +297,21 @@ class PromptLibraryApp(ctk.CTk):
             command=self._on_export,
         )
         export_btn.pack(side="left", fill="x", expand=True)
+
+        location_btn = ctk.CTkButton(
+            btn_container,
+            text="Library...",
+            height=36,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color=self.COLORS["surface"],
+            hover_color=self.COLORS["border"],
+            text_color=self.COLORS["text_secondary"],
+            border_width=1,
+            border_color=self.COLORS["border"],
+            command=self._on_change_library_location,
+        )
+        location_btn.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
     def _build_main_area(self):
         """Build the main editor area."""
@@ -252,6 +331,40 @@ class PromptLibraryApp(ctk.CTk):
         )
         self.editor.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
 
+    def _bind_shortcuts(self):
+        """Bind global keyboard shortcuts."""
+        self.bind_all("<Control-n>", lambda e: self._on_new_prompt())
+        self.bind_all("<Control-s>", lambda e: self._on_shortcut_save())
+        self.bind_all("<Control-f>", lambda e: self._focus_search())
+        self.bind_all("<Delete>", lambda e: self._on_shortcut_delete(e))
+        self.bind_all("<Control-d>", lambda e: self._on_duplicate_prompt())
+        self.bind_all("<Escape>", lambda e: self._on_escape())
+
+    def _focus_search(self):
+        self.search_entry.focus_set()
+        self.search_entry.select_range(0, "end")
+
+    def _on_shortcut_save(self):
+        if self.current_prompt:
+            self.editor.save_current_prompt()
+
+    def _on_shortcut_delete(self, event=None):
+        widget = self.focus_get()
+        if isinstance(widget, (ctk.CTkEntry, ctk.CTkTextbox)):
+            return
+        if self.current_prompt:
+            self._on_delete(self.current_prompt.id)
+
+    def _on_escape(self):
+        widget = self.focus_get()
+        if widget is not None and widget.winfo_toplevel() is not self:
+            return
+        if self.search_entry_var.get():
+            self._clear_search()
+            return
+        if widget is not self.search_entry:
+            self._focus_search()
+
     def _refresh_list(self):
         """Refresh the prompt list."""
         self.prompts = self.storage.load_prompts()
@@ -269,7 +382,35 @@ class PromptLibraryApp(ctk.CTk):
 
     def _on_search(self, event=None):
         """Handle search."""
-        self.prompt_list.set_search(self.search_entry.get())
+        if self._search_after_id is not None:
+            self.after_cancel(self._search_after_id)
+        self._search_after_id = self.after(200, self._apply_search)
+
+    def _apply_search(self):
+        self._search_after_id = None
+        term = self.search_entry_var.get()
+        self.prompt_list.set_search(term)
+        self._update_count()
+        self._update_clear_button()
+
+    def _clear_search(self):
+        if self._search_after_id is not None:
+            self.after_cancel(self._search_after_id)
+            self._search_after_id = None
+        self.search_entry_var.set("")
+        self.prompt_list.set_search("")
+        self._update_count()
+        self._update_clear_button()
+        self.search_entry.focus_set()
+
+    def _update_clear_button(self):
+        has_text = bool(self.search_entry_var.get().strip())
+        state = "normal" if has_text else "disabled"
+        text_color = self.COLORS["text_secondary"] if has_text else self.COLORS["text_muted"]
+        self.clear_search_btn.configure(state=state, text_color=text_color)
+
+    def _on_sort_change(self):
+        self.prompt_list.set_sort(self.sort_var.get())
         self._update_count()
 
     def _on_filter(self, display_name: str):
@@ -301,6 +442,16 @@ class PromptLibraryApp(ctk.CTk):
 
     def _on_prompt_select(self, prompt: Prompt):
         """Handle prompt selection."""
+        if self.current_prompt and prompt.id == self.current_prompt.id:
+            return
+
+        action = self._confirm_unsaved_changes()
+        if action == "cancel":
+            self.prompt_list.set_selected_prompt(self.current_prompt)
+            return
+        if action == "save":
+            self.editor.save_current_prompt()
+
         self.current_prompt = prompt
         self.has_unsaved_changes = False
         self.editor.set_prompt(prompt)
@@ -339,6 +490,44 @@ class PromptLibraryApp(ctk.CTk):
         self.clipboard_append(content)
         self._show_toast("Copied to clipboard")
 
+    def _on_prompt_list_copy(self, prompt: Prompt):
+        """Copy content from list context menu."""
+        self._on_copy(prompt.content)
+
+    def _on_prompt_list_rename(self, prompt: Prompt):
+        """Rename prompt from list context menu."""
+        dialog = RenamePromptDialog(self, colors=self.COLORS, current_name=prompt.name)
+        self.wait_window(dialog)
+        new_name = dialog.result
+        if not new_name or new_name == prompt.name:
+            return
+
+        if self.current_prompt and prompt.id == self.current_prompt.id and self.has_unsaved_changes:
+            action = self._confirm_unsaved_changes()
+            if action == "cancel":
+                return
+            if action == "save":
+                self.editor.save_current_prompt()
+            elif action == "discard":
+                current_prompts = self.storage.load_prompts()
+                stored = next((p for p in current_prompts if p.id == prompt.id), None)
+                if stored:
+                    self.current_prompt = stored
+                    self.editor.set_prompt(stored)
+                self.has_unsaved_changes = False
+                self.editor.update_save_state(False)
+
+        prompt.name = new_name
+        self.storage.update_prompt(prompt)
+        if self.current_prompt and prompt.id == self.current_prompt.id:
+            self.current_prompt.name = new_name
+            self.editor.name_entry.delete(0, "end")
+            self.editor.name_entry.insert(0, new_name)
+            self.has_unsaved_changes = False
+            self.editor.update_save_state(False)
+        self._refresh_list()
+        self._show_toast("Prompt renamed")
+
     def _on_editor_change(self):
         """Handle editor content change."""
         self.has_unsaved_changes = True
@@ -356,6 +545,43 @@ class PromptLibraryApp(ctk.CTk):
             self.storage.export_to_file(filepath)
             self._show_toast(f"Exported {len(self.prompts)} prompts")
 
+    def _on_duplicate_prompt(self):
+        """Duplicate the current prompt."""
+        if not self.current_prompt:
+            return
+
+        if self.has_unsaved_changes:
+            action = self._confirm_unsaved_changes()
+            if action == "cancel":
+                return
+            if action == "save":
+                self.editor.save_current_prompt()
+            elif action == "discard":
+                current_prompts = self.storage.load_prompts()
+                stored = next((p for p in current_prompts if p.id == self.current_prompt.id), None)
+                if stored:
+                    self.current_prompt = stored
+                    self.editor.set_prompt(stored)
+                self.has_unsaved_changes = False
+                self.editor.update_save_state(False)
+
+        name = self.editor.name_entry.get().strip() or self.current_prompt.name
+        content = self.editor.content_text.get("1.0", "end-1c")
+        tags = [t.strip() for t in self.editor.tags_entry.get().split(",") if t.strip()]
+        category = Category(self.editor.category_var.get())
+
+        new_prompt = Prompt(
+            name=f"{name} (copy)",
+            content=content,
+            category=category,
+            tags=tags,
+        )
+
+        self.storage.add_prompt(new_prompt)
+        self._refresh_list()
+        self._on_prompt_select(new_prompt)
+        self._show_toast("Prompt duplicated")
+
     def _on_import(self):
         """Import prompts."""
         filepath = filedialog.askopenfilename(
@@ -363,9 +589,74 @@ class PromptLibraryApp(ctk.CTk):
             filetypes=[("JSON files", "*.json")],
         )
         if filepath:
-            count = self.storage.import_from_file(filepath)
+            try:
+                count = self.storage.import_from_file(filepath)
+            except ValueError as exc:
+                self._show_toast(f"Import failed: {exc}")
+                return
+            except Exception:
+                self._show_toast("Import failed: unexpected error")
+                return
+
             self._refresh_list()
             self._show_toast(f"Imported {count} prompts")
+
+    def _confirm_unsaved_changes(self) -> str:
+        """Return user action for unsaved changes."""
+        if not self.has_unsaved_changes:
+            return "proceed"
+
+        dialog = UnsavedChangesDialog(self, colors=self.COLORS)
+        self.wait_window(dialog)
+        return dialog.result or "cancel"
+
+    def _on_window_close(self):
+        """Handle window close with unsaved changes guard."""
+        action = self._confirm_unsaved_changes()
+        if action == "cancel":
+            return
+        if action == "save":
+            self.editor.save_current_prompt()
+        self.destroy()
+
+    def _on_change_library_location(self):
+        """Choose a new library storage location."""
+        current_dir = self.storage.data_dir
+        filepath = filedialog.askdirectory(
+            title="Choose Library Location",
+            mustexist=False,
+        )
+        if not filepath:
+            return
+
+        target_dir = Path(filepath)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            self._show_toast("Library location failed: cannot create folder")
+            return
+
+        if target_dir.resolve() == current_dir.resolve():
+            self._show_toast("Library location unchanged")
+            return
+
+        current_prompts = current_dir / "prompts.json"
+        target_prompts = target_dir / "prompts.json"
+
+        if current_prompts.exists() and not target_prompts.exists():
+            try:
+                shutil.copy2(current_prompts, target_prompts)
+            except OSError:
+                self._show_toast("Library location failed: could not copy data")
+                return
+
+        set_data_dir(str(target_dir))
+        self.storage = Storage(data_dir=str(target_dir))
+        self.prompts = self.storage.load_prompts()
+        self.current_prompt = None
+        self.editor.clear()
+        self._refresh_list()
+        self._show_toast("Library location updated")
 
     def _show_toast(self, message: str):
         """Show toast notification."""
@@ -376,3 +667,5 @@ def run():
     """Run the application."""
     app = PromptLibraryApp()
     app.mainloop()
+
+

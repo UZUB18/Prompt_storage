@@ -342,3 +342,206 @@ class VariableInputDialog(ctk.CTkToplevel):
             
         self.on_submit(values)
         self.destroy()
+
+
+class UnsavedChangesDialog(ctk.CTkToplevel):
+    """Dialog for unsaved changes confirmation."""
+
+    def __init__(self, master, colors: Dict[str, str], **kwargs):
+        super().__init__(master, **kwargs)
+        self.colors = colors
+        self.result = "cancel"
+
+        self.title("Unsaved Changes")
+        self.geometry("420x220")
+        self.resizable(False, False)
+        self.configure(fg_color=colors["bg"])
+
+        self.transient(master)
+        self.grab_set()
+
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - 420) // 2
+        y = (self.winfo_screenheight() - 220) // 2
+        self.geometry(f"+{x}+{y}")
+
+        card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+
+        content = ctk.CTkFrame(card, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=24, pady=24)
+
+        title = ctk.CTkLabel(
+            content,
+            text="Unsaved changes",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color=colors["text_primary"],
+        )
+        title.pack(anchor="w")
+
+        message = ctk.CTkLabel(
+            content,
+            text="You have unsaved changes. Save before continuing?",
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            text_color=colors["text_secondary"],
+            justify="left",
+            wraplength=360,
+        )
+        message.pack(anchor="w", pady=(8, 20))
+
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", side="bottom")
+
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            width=90,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="transparent",
+            hover_color=colors["border"],
+            text_color=colors["text_secondary"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self._on_cancel,
+        )
+        cancel_btn.pack(side="left")
+
+        discard_btn = ctk.CTkButton(
+            btn_frame,
+            text="Discard",
+            width=90,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="transparent",
+            hover_color="#FEE2E2",
+            text_color=colors["danger"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self._on_discard,
+        )
+        discard_btn.pack(side="left", padx=(8, 0))
+
+        save_btn = ctk.CTkButton(
+            btn_frame,
+            text="Save",
+            width=90,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=colors["accent"],
+            hover_color=colors["accent_hover"],
+            command=self._on_save,
+        )
+        save_btn.pack(side="right")
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+    def _on_save(self):
+        self.result = "save"
+        self.destroy()
+
+    def _on_discard(self):
+        self.result = "discard"
+        self.destroy()
+
+    def _on_cancel(self):
+        self.result = "cancel"
+        self.destroy()
+
+
+class RenamePromptDialog(ctk.CTkToplevel):
+    """Dialog for renaming a prompt."""
+
+    def __init__(self, master, colors: Dict[str, str], current_name: str, **kwargs):
+        super().__init__(master, **kwargs)
+        self.colors = colors
+        self.result = None
+
+        self.title("Rename Prompt")
+        self.geometry("420x200")
+        self.resizable(False, False)
+        self.configure(fg_color=colors["bg"])
+
+        self.transient(master)
+        self.grab_set()
+
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - 420) // 2
+        y = (self.winfo_screenheight() - 200) // 2
+        self.geometry(f"+{x}+{y}")
+
+        card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+
+        content = ctk.CTkFrame(card, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=24, pady=24)
+
+        title = ctk.CTkLabel(
+            content,
+            text="Rename prompt",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color=colors["text_primary"],
+        )
+        title.pack(anchor="w")
+
+        self.name_entry = ctk.CTkEntry(
+            content,
+            height=40,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            fg_color=colors["surface"],
+            border_color=colors["border"],
+            border_width=1,
+            corner_radius=10,
+            text_color=colors["text_primary"],
+        )
+        self.name_entry.pack(fill="x", pady=(12, 18))
+        self.name_entry.insert(0, current_name)
+
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x")
+
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            width=90,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="transparent",
+            hover_color=colors["border"],
+            text_color=colors["text_secondary"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self._on_cancel,
+        )
+        cancel_btn.pack(side="left")
+
+        save_btn = ctk.CTkButton(
+            btn_frame,
+            text="Save",
+            width=90,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=colors["accent"],
+            hover_color=colors["accent_hover"],
+            command=self._on_save,
+        )
+        save_btn.pack(side="right")
+
+        self.after(100, lambda: self.name_entry.focus())
+        self.bind("<Return>", lambda e: self._on_save())
+        self.bind("<Escape>", lambda e: self._on_cancel())
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+
+    def _on_save(self):
+        name = self.name_entry.get().strip()
+        self.result = name
+        self.destroy()
+
+    def _on_cancel(self):
+        self.result = None
+        self.destroy()
