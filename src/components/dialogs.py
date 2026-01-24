@@ -1,0 +1,342 @@
+"""Dialog components - Apple 2026 Edition."""
+import customtkinter as ctk
+from typing import Callable, Dict, List
+
+from ..models import Prompt, Category
+
+
+class NewPromptDialog(ctk.CTkToplevel):
+    """Dialog for creating a new prompt with Apple-style design."""
+
+    def __init__(
+        self,
+        master,
+        on_create: Callable[[Prompt], None],
+        colors: Dict[str, str],
+        **kwargs
+    ):
+        super().__init__(master, **kwargs)
+        self.on_create = on_create
+        self.colors = colors
+
+        self.title("New Prompt")
+        self.geometry("520x680")
+        self.resizable(False, False)
+        self.configure(fg_color=colors["bg"])
+
+        self.transient(master)
+        self.grab_set()
+
+        # Card container
+        card = ctk.CTkFrame(
+            self,
+            fg_color=colors["surface"],
+            corner_radius=16,
+        )
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+
+        content = ctk.CTkFrame(card, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=28, pady=28)
+
+        # Title
+        title = ctk.CTkLabel(
+            content,
+            text="Create New Prompt",
+            font=ctk.CTkFont(family="Segoe UI", size=22, weight="bold"),
+            text_color=colors["text_primary"],
+        )
+        title.pack(anchor="w", pady=(0, 24))
+
+        # Name field
+        name_label = ctk.CTkLabel(
+            content,
+            text="NAME",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=colors["text_muted"],
+            anchor="w",
+        )
+        name_label.pack(fill="x", pady=(0, 8), padx=4)
+
+        self.name_entry = ctk.CTkEntry(
+            content,
+            height=44,
+            font=ctk.CTkFont(family="Segoe UI", size=14),
+            fg_color=colors["surface"],
+            border_color=colors["border"],
+            border_width=1,
+            corner_radius=12,
+            text_color=colors["text_primary"],
+            placeholder_text="Enter prompt name...",
+        )
+        self.name_entry.pack(fill="x", pady=(0, 20))
+
+        # Category field
+        cat_label = ctk.CTkLabel(
+            content,
+            text="CATEGORY",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=colors["text_muted"],
+            anchor="w",
+        )
+        cat_label.pack(fill="x", pady=(0, 8), padx=4)
+
+        self.category_var = ctk.StringVar(value=Category.OTHER.value)
+        self.category_dropdown = ctk.CTkOptionMenu(
+            content,
+            values=[c.value for c in Category],
+            variable=self.category_var,
+            height=44,
+            font=ctk.CTkFont(family="Segoe UI", size=14),
+            fg_color=colors["surface"],
+            button_color=colors["border"],
+            button_hover_color=colors["accent"],
+            dropdown_fg_color=colors["surface"],
+            dropdown_hover_color=colors["accent"],
+            corner_radius=12,
+        )
+        self.category_dropdown.pack(fill="x", pady=(0, 20))
+
+        # Tags field
+        tags_label = ctk.CTkLabel(
+            content,
+            text="TAGS",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=colors["text_muted"],
+            anchor="w",
+        )
+        tags_label.pack(fill="x", pady=(0, 8), padx=4)
+
+        self.tags_entry = ctk.CTkEntry(
+            content,
+            height=44,
+            font=ctk.CTkFont(family="Segoe UI", size=14),
+            fg_color=colors["surface"],
+            border_color=colors["border"],
+            border_width=1,
+            corner_radius=12,
+            text_color=colors["text_primary"],
+            placeholder_text="Comma-separated tags...",
+        )
+        self.tags_entry.pack(fill="x", pady=(0, 20))
+
+        # Content field
+        content_label = ctk.CTkLabel(
+            content,
+            text="CONTENT",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=colors["text_muted"],
+            anchor="w",
+        )
+        content_label.pack(fill="x", pady=(0, 8), padx=4)
+
+        self.content_text = ctk.CTkTextbox(
+            content,
+            height=140,
+            font=ctk.CTkFont(family="Consolas", size=13),
+            fg_color=colors["surface"],
+            text_color=colors["text_primary"],
+            border_color=colors["border"],
+            border_width=1,
+            corner_radius=12,
+            wrap="word",
+        )
+        self.content_text.pack(fill="x", pady=(0, 24))
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x")
+
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            width=100,
+            height=44,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=14),
+            fg_color="transparent",
+            hover_color=colors["border"],
+            text_color=colors["text_secondary"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self.destroy,
+        )
+        cancel_btn.pack(side="left")
+
+        create_btn = ctk.CTkButton(
+            btn_frame,
+            text="Create",
+            width=100,
+            height=44,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            fg_color=colors["accent"],
+            hover_color=colors["accent_hover"],
+            command=self._on_create,
+        )
+        create_btn.pack(side="right")
+
+        self.after(100, lambda: self.name_entry.focus())
+
+    def _on_create(self):
+        """Handle create."""
+        name = self.name_entry.get().strip()
+        content = self.content_text.get("1.0", "end-1c").strip()
+
+        if not name or not content:
+            return
+
+        prompt = Prompt(
+            name=name,
+            content=content,
+            category=Category(self.category_var.get()),
+            tags=[t.strip() for t in self.tags_entry.get().split(",") if t.strip()],
+        )
+
+        self.on_create(prompt)
+        self.destroy()
+
+
+class VariableInputDialog(ctk.CTkToplevel):
+    """Dialog for entering values for prompt variables."""
+
+    def __init__(
+        self,
+        master,
+        variables: List[str],
+        on_submit: Callable[[Dict[str, str]], None],
+        colors: Dict[str, str],
+        **kwargs
+    ):
+        super().__init__(master, **kwargs)
+        self.on_submit = on_submit
+        self.colors = colors
+        self.variables = variables
+        self.entries = {}
+
+        self.title("Variables Required")
+        height = min(600, 220 + len(variables) * 90)
+        self.geometry(f"450x{height}")
+        self.resizable(True, True)
+        self.configure(fg_color=colors["bg"])
+        
+        # Center
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - 450) // 2
+        y = (self.winfo_screenheight() - height) // 2
+        self.geometry(f"+{x}+{y}")
+
+        self.transient(master)
+        self.grab_set()
+
+        # Card
+        card = ctk.CTkFrame(
+            self,
+            fg_color=colors["surface"],
+            corner_radius=16,
+        )
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Title
+        title_frame = ctk.CTkFrame(card, fg_color="transparent")
+        title_frame.pack(fill="x", padx=28, pady=(28, 12))
+
+        title = ctk.CTkLabel(
+            title_frame,
+            text="Fill in Variables",
+            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
+            text_color=colors["text_primary"],
+        )
+        title.pack(anchor="w")
+        
+        subtitle = ctk.CTkLabel(
+            title_frame,
+            text="Please provide values for the placeholders.",
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            text_color=colors["text_secondary"],
+        )
+        subtitle.pack(anchor="w", pady=(4, 0))
+
+        # Scrollable inputs
+        scroll = ctk.CTkScrollableFrame(card, fg_color="transparent")
+        scroll.pack(fill="both", expand=True, padx=18, pady=12)
+
+        first_entry = None
+
+        for var in variables:
+            frame = ctk.CTkFrame(scroll, fg_color="transparent")
+            frame.pack(fill="x", pady=10)
+
+            label = ctk.CTkLabel(
+                frame,
+                text=var.upper(),
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color=colors["text_muted"],
+                anchor="w",
+            )
+            label.pack(fill="x", pady=(0, 6), padx=4)
+            
+            entry = ctk.CTkEntry(
+                frame,
+                height=44,
+                font=ctk.CTkFont(family="Segoe UI", size=14),
+                fg_color=colors["surface"],
+                border_color=colors["border"],
+                border_width=1,
+                corner_radius=12,
+                text_color=colors["text_primary"],
+                placeholder_text=f"Value for {var}..."
+            )
+            entry.pack(fill="x")
+            self.entries[var] = entry
+            
+            if first_entry is None:
+                first_entry = entry
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=28, pady=28)
+
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            width=100,
+            height=44,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=14),
+            fg_color="transparent",
+            hover_color=colors["border"],
+            text_color=colors["text_secondary"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self.destroy,
+        )
+        cancel_btn.pack(side="left")
+
+        submit_btn = ctk.CTkButton(
+            btn_frame,
+            text="Insert",
+            width=100,
+            height=44,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            fg_color=colors["accent"],
+            hover_color=colors["accent_hover"],
+            command=self._on_submit,
+        )
+        submit_btn.pack(side="right")
+        
+        if first_entry:
+            self.after(100, lambda: first_entry.focus())
+            
+        self.bind("<Return>", lambda e: self._on_submit())
+        self.bind("<Escape>", lambda e: self.destroy())
+
+    def _on_submit(self):
+        """Collect values and callback."""
+        values = {}
+        for var, entry in self.entries.items():
+            val = entry.get().strip()
+            values[var] = val
+            
+        self.on_submit(values)
+        self.destroy()
