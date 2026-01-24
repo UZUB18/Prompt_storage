@@ -168,10 +168,15 @@ class PromptEditor(ctk.CTkFrame):
         self.category_dropdown = ctk.CTkOptionMenu(
             cat_frame, values=[c.value for c in Category],
             variable=self.category_var, height=38,
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            fg_color=colors["surface"], button_color=colors["border"],
-            button_hover_color=colors["accent"], dropdown_fg_color=colors["surface"],
-            dropdown_hover_color=colors["accent"], corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            fg_color=colors["surface"],
+            text_color=colors["text_primary"],
+            button_color=colors["accent"],
+            button_hover_color=colors["accent_hover"],
+            dropdown_fg_color=colors["surface"],
+            dropdown_text_color=colors["text_primary"],
+            dropdown_hover_color=colors["accent_glow"],
+            corner_radius=10,
             command=lambda _: self._on_field_change(),
         )
         self.category_dropdown.pack(fill="x")

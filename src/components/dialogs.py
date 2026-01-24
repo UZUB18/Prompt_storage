@@ -86,12 +86,14 @@ class NewPromptDialog(ctk.CTkToplevel):
             values=[c.value for c in Category],
             variable=self.category_var,
             height=44,
-            font=ctk.CTkFont(family="Segoe UI", size=14),
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             fg_color=colors["surface"],
-            button_color=colors["border"],
-            button_hover_color=colors["accent"],
+            text_color=colors["text_primary"],
+            button_color=colors["accent"],
+            button_hover_color=colors["accent_hover"],
             dropdown_fg_color=colors["surface"],
-            dropdown_hover_color=colors["accent"],
+            dropdown_text_color=colors["text_primary"],
+            dropdown_hover_color=colors["accent_glow"],
             corner_radius=12,
         )
         self.category_dropdown.pack(fill="x", pady=(0, 20))

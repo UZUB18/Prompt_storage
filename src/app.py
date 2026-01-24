@@ -67,16 +67,21 @@ class PromptLibraryApp(ctk.CTk):
         self._build_main_area()
 
     def _build_sidebar(self):
-        """Build Apple-style navigation sidebar."""
+        """Build Apple-style navigation sidebar with auto-sizing."""
+        # Use grid column configure for sidebar sizing
+        self.grid_columnconfigure(0, weight=0, minsize=300)
+        
         sidebar = ctk.CTkFrame(
             self,
-            width=320,
             fg_color=self.COLORS["sidebar_bg"],
             corner_radius=0,
             border_width=0,
         )
         sidebar.grid(row=0, column=0, sticky="nsew")
-        sidebar.grid_propagate(False)
+        
+        # Use grid layout for sidebar contents
+        sidebar.grid_columnconfigure(0, weight=1)
+        sidebar.grid_rowconfigure(4, weight=1)  # Prompt list expands
 
         # Sidebar right border (subtle)
         border_frame = ctk.CTkFrame(
@@ -85,117 +90,112 @@ class PromptLibraryApp(ctk.CTk):
             fg_color=self.COLORS["border"],
             corner_radius=0,
         )
-        border_frame.pack(side="right", fill="y")
+        border_frame.place(relx=1.0, rely=0, relheight=1.0, anchor="ne")
 
-        # Header with title and add button
+        # Row 0: Header with title and add button
         header = ctk.CTkFrame(sidebar, fg_color="transparent")
-        header.pack(fill="x", padx=20, pady=(24, 20))
+        header.grid(row=0, column=0, sticky="ew", padx=16, pady=(20, 16))
 
         title = ctk.CTkLabel(
             header,
             text="Library",
-            font=ctk.CTkFont(family="Segoe UI", size=28, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
             text_color=self.COLORS["text_primary"],
         )
         title.pack(side="left")
 
-        # Add button (violet circle with shadow effect)
+        # Add button (violet circle)
         new_btn = ctk.CTkButton(
             header,
             text="+",
-            width=36,
-            height=36,
-            corner_radius=18,
-            font=ctk.CTkFont(size=20),
+            width=32,
+            height=32,
+            corner_radius=16,
+            font=ctk.CTkFont(size=18),
             fg_color=self.COLORS["accent"],
             hover_color=self.COLORS["accent_hover"],
             command=self._on_new_prompt,
         )
         new_btn.pack(side="right")
 
-        # Search field with icon placeholder
-        search_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
-        search_frame.pack(fill="x", padx=20, pady=(0, 16))
-
+        # Row 1: Search field
         self.search_entry = ctk.CTkEntry(
-            search_frame,
-            height=40,
-            placeholder_text="🔍  Search prompts...",
-            font=ctk.CTkFont(family="Segoe UI", size=14),
+            sidebar,
+            height=36,
+            placeholder_text="🔍 Search...",
+            font=ctk.CTkFont(family="Segoe UI", size=13),
             fg_color=self.COLORS["surface"],
             border_color=self.COLORS["border"],
             border_width=1,
-            corner_radius=12,
+            corner_radius=10,
             text_color=self.COLORS["text_primary"],
         )
-        self.search_entry.pack(fill="x")
+        self.search_entry.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
         self.search_entry.bind("<KeyRelease>", self._on_search)
 
-        # Segmented filter control (pill style)
+        # Row 2: Segmented filter control (compact)
         filter_container = ctk.CTkFrame(
             sidebar,
-            fg_color="#E5E5EA",  # iOS segmented control bg
-            corner_radius=10,
-            height=36,
+            fg_color="#E5E5EA",
+            corner_radius=8,
+            height=32,
         )
-        filter_container.pack(fill="x", padx=20, pady=(0, 16))
-        filter_container.pack_propagate(False)
-
-        inner_filter = ctk.CTkFrame(filter_container, fg_color="transparent")
-        inner_filter.pack(fill="both", expand=True, padx=2, pady=2)
+        filter_container.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 12))
+        filter_container.grid_propagate(False)
+        filter_container.grid_columnconfigure((0,1,2,3), weight=1)
 
         self.filter_buttons = {}
-        # Map display names to actual Category values
+        # Use shorter display names that fit better
         self.filter_map = {
             "All": None,
-            "Persona": "Persona",
-            "System": "System Prompt",
-            "Template": "Template",
+            "Pers": "Persona",
+            "Sys": "System Prompt",
+            "Tmpl": "Template",
         }
         
         for i, (display_name, cat_value) in enumerate(self.filter_map.items()):
             is_active = display_name == "All"
             btn = ctk.CTkButton(
-                inner_filter,
+                filter_container,
                 text=display_name,
-                height=32,
-                corner_radius=8,
-                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold" if is_active else "normal"),
+                height=28,
+                corner_radius=6,
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_active else "normal"),
                 fg_color=self.COLORS["surface"] if is_active else "transparent",
                 hover_color=self.COLORS["surface"],
                 text_color=self.COLORS["accent"] if is_active else self.COLORS["text_secondary"],
                 border_width=0,
                 command=lambda d=display_name: self._on_filter(d),
             )
-            btn.pack(side="left", fill="both", expand=True, padx=1)
+            btn.grid(row=0, column=i, sticky="ew", padx=2, pady=2)
             self.filter_buttons[display_name] = btn
 
-        # Count label
+        # Row 3: Count label
         self.count_label = ctk.CTkLabel(
             sidebar,
             text="0 PROMPTS",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color=self.COLORS["text_muted"],
         )
-        self.count_label.pack(padx=24, anchor="w", pady=(0, 8))
+        self.count_label.grid(row=3, column=0, sticky="w", padx=20, pady=(0, 6))
 
-        # Prompt list
+        # Row 4: Prompt list (EXPANDS)
         self.prompt_list = PromptList(
             sidebar,
             on_select=self._on_prompt_select,
             colors=self.COLORS,
         )
-        self.prompt_list.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.prompt_list.grid(row=4, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
-        # Footer actions (glass panel effect)
+        # Row 5: Footer actions
         footer = ctk.CTkFrame(
             sidebar, 
             fg_color=self.COLORS["sidebar_bg"],
             corner_radius=0,
-            height=64,
+            height=56,
         )
-        footer.pack(fill="x", side="bottom")
-        footer.pack_propagate(False)
+        footer.grid(row=5, column=0, sticky="ew")
+        footer.grid_propagate(False)
 
         # Top border for footer
         footer_border = ctk.CTkFrame(footer, height=1, fg_color=self.COLORS["border"])
