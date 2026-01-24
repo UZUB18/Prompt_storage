@@ -2,7 +2,6 @@
 import customtkinter as ctk
 from tkinter import filedialog
 from typing import Optional
-from datetime import datetime
 from pathlib import Path
 import shutil
 
@@ -58,6 +57,8 @@ class PromptLibraryApp(ctk.CTk):
         self.has_unsaved_changes = False
         self.active_filter = "All"
         self._search_after_id = None
+        self.filter_buttons: dict[str, ctk.CTkButton] = {}
+        self.filter_map: dict[str, Optional[str]] = {}
 
         # Build UI
         self._build_ui()
@@ -176,7 +177,6 @@ class PromptLibraryApp(ctk.CTk):
         filter_container.grid_propagate(False)
         filter_container.grid_columnconfigure((0,1,2,3), weight=1)
 
-        self.filter_buttons = {}
         # Use shorter display names that fit better
         self.filter_map = {
             "All": None,
@@ -185,7 +185,7 @@ class PromptLibraryApp(ctk.CTk):
             "Tmpl": "Template",
         }
         
-        for i, (display_name, cat_value) in enumerate(self.filter_map.items()):
+        for i, (display_name, _cat_value) in enumerate(self.filter_map.items()):
             is_active = display_name == "All"
             btn = ctk.CTkButton(
                 filter_container,
@@ -235,8 +235,9 @@ class PromptLibraryApp(ctk.CTk):
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
             fg_color=self.COLORS["surface"],
             text_color=self.COLORS["text_primary"],
-            button_color=self.COLORS["accent"],
-            button_hover_color=self.COLORS["accent_hover"],
+            # Keep dropdown chrome neutral; use accent for primary actions only.
+            button_color=self.COLORS["surface"],
+            button_hover_color=self.COLORS["bg"],
             dropdown_fg_color=self.COLORS["surface"],
             dropdown_text_color=self.COLORS["text_primary"],
             dropdown_hover_color=self.COLORS["accent_glow"],
@@ -362,7 +363,7 @@ class PromptLibraryApp(ctk.CTk):
         if self.current_prompt:
             self.editor.save_current_prompt()
 
-    def _on_shortcut_delete(self, event=None):
+    def _on_shortcut_delete(self, event: object | None = None):
         widget = self.focus_get()
         if isinstance(widget, (ctk.CTkEntry, ctk.CTkTextbox)):
             return
@@ -394,7 +395,7 @@ class PromptLibraryApp(ctk.CTk):
         else:
             self.count_label.configure(text=f"{count} OF {total} PROMPTS")
 
-    def _on_search(self, event=None):
+    def _on_search(self, event: object | None = None):
         """Handle search."""
         if self._search_after_id is not None:
             self.after_cancel(self._search_after_id)
@@ -473,7 +474,7 @@ class PromptLibraryApp(ctk.CTk):
     def _on_new_prompt(self):
         """Open new prompt dialog."""
         dialog = NewPromptDialog(self, on_create=self._create_prompt, colors=self.COLORS)
-        dialog.focus()
+        dialog.focus_set()
 
     def _create_prompt(self, prompt: Prompt):
         """Create new prompt."""
