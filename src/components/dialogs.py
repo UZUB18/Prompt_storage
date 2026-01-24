@@ -554,3 +554,278 @@ class RenamePromptDialog(ctk.CTkToplevel):
     def _on_cancel(self):
         self.result = None
         self.destroy()
+
+
+class FindReplaceDialog(ctk.CTkToplevel):
+    """Dialog for find/replace in the editor."""
+
+    def __init__(
+        self,
+        master,
+        colors: Dict[str, str],
+        on_find: Callable[[str], bool],
+        on_replace: Callable[[str, str], bool] | None = None,
+        on_replace_all: Callable[[str, str], int] | None = None,
+        show_replace: bool = False,
+        **kwargs
+    ):
+        super().__init__(master, **kwargs)
+        self.colors = colors
+        self.on_find = on_find
+        self.on_replace = on_replace
+        self.on_replace_all = on_replace_all
+        self.show_replace = show_replace
+
+        self.title("Find" + (" & Replace" if show_replace else ""))
+        self.geometry("420x220" if show_replace else "420x170")
+        self.resizable(False, False)
+        self.configure(fg_color=colors["bg"])
+
+        self.transient(master)
+        self.grab_set()
+
+        self.update_idletasks()
+        width = 420
+        height = 220 if show_replace else 170
+        x = (self.winfo_screenwidth() - width) // 2
+        y = (self.winfo_screenheight() - height) // 2
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+        card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+
+        content = ctk.CTkFrame(card, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=24, pady=24)
+
+        ctk.CTkLabel(
+            content,
+            text="FIND",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=colors["text_muted"],
+            anchor="w",
+        ).pack(fill="x", pady=(0, 6))
+
+        self.find_entry = ctk.CTkEntry(
+            content,
+            height=36,
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            fg_color=colors["surface"],
+            border_color=colors["border"],
+            border_width=1,
+            corner_radius=10,
+            text_color=colors["text_primary"],
+        )
+        self.find_entry.pack(fill="x", pady=(0, 12))
+
+        self.replace_entry = None
+        if show_replace:
+            ctk.CTkLabel(
+                content,
+                text="REPLACE",
+                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+                text_color=colors["text_muted"],
+                anchor="w",
+            ).pack(fill="x", pady=(0, 6))
+
+            self.replace_entry = ctk.CTkEntry(
+                content,
+                height=36,
+                font=ctk.CTkFont(family="Segoe UI", size=13),
+                fg_color=colors["surface"],
+                border_color=colors["border"],
+                border_width=1,
+                corner_radius=10,
+                text_color=colors["text_primary"],
+            )
+            self.replace_entry.pack(fill="x", pady=(0, 12))
+
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(4, 0))
+
+        find_btn = ctk.CTkButton(
+            btn_frame,
+            text="Find Next",
+            width=100,
+            height=32,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=colors["accent"],
+            hover_color=colors["accent_hover"],
+            command=self._on_find,
+        )
+        find_btn.pack(side="left")
+
+        if show_replace:
+            replace_btn = ctk.CTkButton(
+                btn_frame,
+                text="Replace",
+                width=90,
+                height=32,
+                corner_radius=8,
+                font=ctk.CTkFont(family="Segoe UI", size=12),
+                fg_color=colors["surface"],
+                hover_color=colors["border"],
+                text_color=colors["text_secondary"],
+                border_width=1,
+                border_color=colors["border"],
+                command=self._on_replace,
+            )
+            replace_btn.pack(side="left", padx=(8, 0))
+
+            replace_all_btn = ctk.CTkButton(
+                btn_frame,
+                text="Replace All",
+                width=100,
+                height=32,
+                corner_radius=8,
+                font=ctk.CTkFont(family="Segoe UI", size=12),
+                fg_color=colors["surface"],
+                hover_color=colors["border"],
+                text_color=colors["text_secondary"],
+                border_width=1,
+                border_color=colors["border"],
+                command=self._on_replace_all,
+            )
+            replace_all_btn.pack(side="left", padx=(8, 0))
+
+        close_btn = ctk.CTkButton(
+            btn_frame,
+            text="Close",
+            width=80,
+            height=32,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="transparent",
+            hover_color=colors["border"],
+            text_color=colors["text_secondary"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self.destroy,
+        )
+        close_btn.pack(side="right")
+
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Return>", lambda e: self._on_find())
+        self.find_entry.focus_set()
+
+    def _on_find(self):
+        term = self.find_entry.get().strip()
+        if not term:
+            return
+        self.on_find(term)
+
+    def _on_replace(self):
+        if not self.replace_entry or not self.on_replace:
+            return
+        term = self.find_entry.get().strip()
+        replacement = self.replace_entry.get()
+        if not term:
+            return
+        self.on_replace(term, replacement)
+
+    def _on_replace_all(self):
+        if not self.replace_entry or not self.on_replace_all:
+            return
+        term = self.find_entry.get().strip()
+        replacement = self.replace_entry.get()
+        if not term:
+            return
+        self.on_replace_all(term, replacement)
+
+
+class ConfirmDialog(ctk.CTkToplevel):
+    """Generic confirm dialog."""
+
+    def __init__(
+        self,
+        master,
+        colors: Dict[str, str],
+        title: str,
+        message: str,
+        confirm_text: str = "Continue",
+        cancel_text: str = "Cancel",
+        **kwargs
+    ):
+        super().__init__(master, **kwargs)
+        self.colors = colors
+        self.result = "cancel"
+
+        self.title(title)
+        self.geometry("420x210")
+        self.resizable(False, False)
+        self.configure(fg_color=colors["bg"])
+
+        self.transient(master)
+        self.grab_set()
+
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - 420) // 2
+        y = (self.winfo_screenheight() - 210) // 2
+        self.geometry(f"+{x}+{y}")
+
+        card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+
+        content = ctk.CTkFrame(card, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=24, pady=24)
+
+        title_label = ctk.CTkLabel(
+            content,
+            text=title,
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color=colors["text_primary"],
+        )
+        title_label.pack(anchor="w")
+
+        message_label = ctk.CTkLabel(
+            content,
+            text=message,
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            text_color=colors["text_secondary"],
+            justify="left",
+            wraplength=360,
+        )
+        message_label.pack(anchor="w", pady=(8, 20))
+
+        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        btn_frame.pack(fill="x", side="bottom")
+
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text=cancel_text,
+            width=90,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="transparent",
+            hover_color=colors["border"],
+            text_color=colors["text_secondary"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self._on_cancel,
+        )
+        cancel_btn.pack(side="left")
+
+        confirm_btn = ctk.CTkButton(
+            btn_frame,
+            text=confirm_text,
+            width=110,
+            height=36,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=colors["accent"],
+            hover_color=colors["accent_hover"],
+            command=self._on_confirm,
+        )
+        confirm_btn.pack(side="right")
+
+        self.protocol("WM_DELETE_WINDOW", self._on_cancel)
+        self.bind("<Escape>", lambda e: self._on_cancel())
+
+    def _on_confirm(self):
+        self.result = "confirm"
+        self.destroy()
+
+    def _on_cancel(self):
+        self.result = "cancel"
+        self.destroy()

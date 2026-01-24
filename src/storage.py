@@ -22,6 +22,7 @@ class Storage:
             self.data_dir = Path(data_dir)
         
         self.prompts_file = self.data_dir / "prompts.json"
+        self._restored_from_backup = False
         self._ensure_data_dir()
 
     def _ensure_data_dir(self):
@@ -107,6 +108,9 @@ class Storage:
             if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
                 raise ValueError(f"Item {index} has invalid 'tags' list (strings only).")
 
+        if "sensitive" in item and not isinstance(item.get("sensitive"), bool):
+            raise ValueError(f"Item {index} has invalid 'sensitive' (boolean expected).")
+
         for field_name in ("id", "created_at", "updated_at"):
             if field_name in item and not isinstance(item.get(field_name), str):
                 raise ValueError(f"Item {index} has invalid '{field_name}' (string expected).")
@@ -132,8 +136,16 @@ class Storage:
 
             # Restore without rotating backups to preserve history.
             self._write_json_atomic(self.prompts_file, data)
+            self._restored_from_backup = True
             return True
 
+        return False
+
+    def consume_restore_flag(self) -> bool:
+        """Return True if a restore just happened, and reset the flag."""
+        if self._restored_from_backup:
+            self._restored_from_backup = False
+            return True
         return False
 
     def _load_raw(self) -> List[dict]:

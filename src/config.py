@@ -63,3 +63,31 @@ def set_data_dir(path: str):
     config = load_config()
     config["data_dir"] = path
     save_config(config)
+
+
+def get_sort_option(default: str = "Recently updated") -> str:
+    config = load_config()
+    value = config.get("sort_option")
+    if isinstance(value, str) and value.strip():
+        return value
+    return default
+
+
+def set_sort_option(option: str):
+    config = load_config()
+    config["sort_option"] = option
+    save_config(config)
+
+
+def get_theme(default: str = "light") -> str:
+    config = load_config()
+    value = config.get("theme")
+    if isinstance(value, str) and value.strip():
+        return value
+    return default
+
+
+def set_theme(theme: str):
+    config = load_config()
+    config["theme"] = theme
+    save_config(config)

@@ -33,6 +33,7 @@ env/
 
 # Data files (local storage)
 data/prompts.json
+data/
 
 # OS
 .DS_Store

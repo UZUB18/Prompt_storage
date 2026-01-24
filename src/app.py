@@ -7,10 +7,10 @@ import shutil
 
 from .models import Prompt, Category
 from .storage import Storage
-from .config import get_data_dir, set_data_dir
+from .config import get_data_dir, set_data_dir, get_sort_option, set_sort_option, get_theme, set_theme
 from .components.prompt_list import PromptList
 from .components.prompt_editor import PromptEditor
-from .components.dialogs import NewPromptDialog, UnsavedChangesDialog, RenamePromptDialog
+from .components.dialogs import NewPromptDialog, UnsavedChangesDialog, RenamePromptDialog, ConfirmDialog
 from .components.toast import Toast
 
 
@@ -18,7 +18,7 @@ class PromptLibraryApp(ctk.CTk):
     """Main application window with Apple 2026 design."""
 
     # Design tokens - Apple 2026 Edition
-    COLORS = {
+    LIGHT_COLORS = {
         # Light mode (default for this design)
         "bg": "#F5F5F7",              # Apple Silver/Light Gray
         "surface": "#FFFFFF",          # Pure white cards
@@ -31,19 +31,49 @@ class PromptLibraryApp(ctk.CTk):
         "accent_glow": "#E9DEFF",      # Light violet (no alpha)
         "success": "#28C840",          # Apple Green
         "danger": "#FF5F57",           # Apple Red
+        "warning": "#F59E0B",          # Amber
         "text_primary": "#1D1D1F",     # Near-black
         "text_secondary": "#6E6E73",   # Gray
         "text_muted": "#86868B",       # Light gray
-        "category_bg": "#F3EBFF",      # Light violet background
+        "category_bg": "#F2F2F4",      # Neutral pill background
+        "pill_bg": "#F2F2F4",
+        "toast_bg": "#1D1D1F",
+        "toast_text": "#FFFFFF",
+    }
+
+    DARK_COLORS = {
+        "bg": "#0F0F10",
+        "surface": "#1A1A1D",
+        "sidebar_bg": "#151517",
+        "card": "#1A1A1D",
+        "input": "#1E1E21",
+        "border": "#2E2E33",
+        "accent": "#8B5CF6",
+        "accent_hover": "#7C3AED",
+        "accent_glow": "#2B2440",
+        "success": "#2BD24A",
+        "danger": "#FF6B63",
+        "warning": "#F59E0B",
+        "text_primary": "#F5F5F7",
+        "text_secondary": "#C7C7CC",
+        "text_muted": "#9A9AA0",
+        "category_bg": "#2A2A2E",
+        "pill_bg": "#2A2A2E",
+        "toast_bg": "#F5F5F7",
+        "toast_text": "#0F0F10",
     }
 
     def __init__(self):
         super().__init__()
 
         # Configure appearance
-        ctk.set_appearance_mode("light")
+        self.theme = get_theme()
+        if self.theme not in ("light", "dark"):
+            self.theme = "light"
+        ctk.set_appearance_mode(self.theme)
         ctk.set_default_color_theme("blue")
 
+        self.COLORS = self._get_theme_colors()
         self.title("Prompt Library Pro")
         self.geometry("1200x800")
         self.minsize(1000, 700)
@@ -59,12 +89,17 @@ class PromptLibraryApp(ctk.CTk):
         self._search_after_id = None
         self.filter_buttons: dict[str, ctk.CTkButton] = {}
         self.filter_map: dict[str, Optional[str]] = {}
+        self.filter_labels: dict[str, str] = {}
+        self.filter_order: list[str] = []
 
         # Build UI
         self._build_ui()
         self._refresh_list()
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._bind_shortcuts()
+
+    def _get_theme_colors(self) -> dict:
+        return self.DARK_COLORS if self.theme == "dark" else self.LIGHT_COLORS
 
     def _build_ui(self):
         """Build the application UI."""
@@ -89,7 +124,7 @@ class PromptLibraryApp(ctk.CTk):
         
         # Use grid layout for sidebar contents
         sidebar.grid_columnconfigure(0, weight=1)
-        sidebar.grid_rowconfigure(5, weight=1)  # Prompt list expands
+        sidebar.grid_rowconfigure(6, weight=1)  # Prompt list expands
 
         # Sidebar right border (subtle)
         border_frame = ctk.CTkFrame(
@@ -167,7 +202,7 @@ class PromptLibraryApp(ctk.CTk):
         # Row 2: Segmented filter control (compact)
         filter_container = ctk.CTkFrame(
             sidebar,
-            fg_color="#E5E5EA",
+            fg_color=self.COLORS["input"],
             corner_radius=10,
             height=32,
             border_width=1,
@@ -175,21 +210,30 @@ class PromptLibraryApp(ctk.CTk):
         )
         filter_container.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 12))
         filter_container.grid_propagate(False)
-        filter_container.grid_columnconfigure((0,1,2,3), weight=1)
+        filter_container.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
 
-        # Use shorter display names that fit better
         self.filter_map = {
             "All": None,
-            "Pers": "Persona",
-            "Sys": "System Prompt",
-            "Tmpl": "Template",
+            "Persona": "Persona",
+            "System": "System Prompt",
+            "Template": "Template",
+            "Other": "Other",
         }
-        
-        for i, (display_name, _cat_value) in enumerate(self.filter_map.items()):
-            is_active = display_name == "All"
+        self.filter_labels = {
+            "All": "All",
+            "Persona": "Persona",
+            "System": "System",
+            "Template": "Template",
+            "Other": "Other",
+        }
+        self.filter_order = ["All", "Persona", "System", "Template", "Other"]
+
+        for i, key in enumerate(self.filter_order):
+            label = self.filter_labels[key]
+            is_active = key == "All"
             btn = ctk.CTkButton(
                 filter_container,
-                text=display_name,
+                text=label,
                 height=28,
                 corner_radius=6,
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_active else "normal"),
@@ -197,10 +241,10 @@ class PromptLibraryApp(ctk.CTk):
                 hover_color=self.COLORS["surface"],
                 text_color=self.COLORS["accent"] if is_active else self.COLORS["text_secondary"],
                 border_width=0,
-                command=lambda d=display_name: self._on_filter(d),
+                command=lambda d=key: self._on_filter(d),
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2, pady=2)
-            self.filter_buttons[display_name] = btn
+            self.filter_buttons[key] = btn
 
         # Row 3: Sort options
         sort_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
@@ -215,7 +259,11 @@ class PromptLibraryApp(ctk.CTk):
         )
         sort_label.grid(row=0, column=0, sticky="w", padx=(4, 8))
 
-        self.sort_var = ctk.StringVar(value="Recently updated")
+        sort_options = ["Recently updated", "Name A->Z", "Created"]
+        sort_value = get_sort_option()
+        if sort_value not in sort_options:
+            sort_value = "Recently updated"
+        self.sort_var = ctk.StringVar(value=sort_value)
         # Wrap the option menu so it visually matches CTkEntry borders.
         sort_menu_outer = ctk.CTkFrame(
             sort_frame,
@@ -229,7 +277,7 @@ class PromptLibraryApp(ctk.CTk):
 
         self.sort_menu = ctk.CTkOptionMenu(
             sort_menu_outer,
-            values=["Recently updated", "Name A->Z", "Created"],
+            values=sort_options,
             variable=self.sort_var,
             height=30,
             font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
@@ -247,33 +295,58 @@ class PromptLibraryApp(ctk.CTk):
         self.sort_menu.pack(fill="x", padx=1, pady=1)
 
         # Row 4: Count label
+        count_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
+        count_frame.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 6))
+        count_frame.grid_columnconfigure(0, weight=1)
+
         self.count_label = ctk.CTkLabel(
-            sidebar,
+            count_frame,
             text="0 PROMPTS",
             font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
             text_color=self.COLORS["text_muted"],
         )
-        self.count_label.grid(row=4, column=0, sticky="w", padx=20, pady=(0, 6))
+        self.count_label.grid(row=0, column=0, sticky="w")
 
-        # Row 5: Prompt list (EXPANDS)
+        self.theme_var = ctk.BooleanVar(value=self.theme == "dark")
+        self.theme_toggle = ctk.CTkSwitch(
+            count_frame,
+            text="Dark mode",
+            variable=self.theme_var,
+            onvalue=True,
+            offvalue=False,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color=self.COLORS["text_muted"],
+            command=self._toggle_theme,
+        )
+        self.theme_toggle.grid(row=0, column=1, sticky="e")
+
+        # Row 5: Divider between controls and list (sticky header)
+        ctk.CTkFrame(sidebar, height=1, fg_color=self.COLORS["border"]).grid(
+            row=5, column=0, sticky="ew", padx=16, pady=(0, 8)
+        )
+
+        # Row 6: Prompt list (EXPANDS)
         self.prompt_list = PromptList(
             sidebar,
             on_select=self._on_prompt_select,
             on_copy=self._on_prompt_list_copy,
             on_rename=self._on_prompt_list_rename,
+            on_clear_search=self._clear_search,
+            on_new_prompt=self._on_new_prompt,
             colors=self.COLORS,
         )
-        self.prompt_list.grid(row=5, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self.prompt_list.grid(row=6, column=0, sticky="nsew", padx=8, pady=(0, 8))
         self.prompt_list.set_sort(self.sort_var.get())
+        self._update_filter_counts()
 
-        # Row 6: Footer actions
+        # Row 7: Footer actions
         footer = ctk.CTkFrame(
             sidebar, 
             fg_color=self.COLORS["sidebar_bg"],
             corner_radius=0,
             height=56,
         )
-        footer.grid(row=6, column=0, sticky="ew")
+        footer.grid(row=7, column=0, sticky="ew")
         footer.grid_propagate(False)
 
         # Top border for footer
@@ -341,6 +414,7 @@ class PromptLibraryApp(ctk.CTk):
             on_save=self._on_save,
             on_delete=self._on_delete,
             on_copy=self._on_copy,
+            on_toast=self._show_toast,
             on_change=self._on_editor_change,
             colors=self.COLORS,
         )
@@ -350,7 +424,8 @@ class PromptLibraryApp(ctk.CTk):
         """Bind global keyboard shortcuts."""
         self.bind_all("<Control-n>", lambda e: self._on_new_prompt())
         self.bind_all("<Control-s>", lambda e: self._on_shortcut_save())
-        self.bind_all("<Control-f>", lambda e: self._focus_search())
+        self.bind_all("<Control-f>", lambda e: self._on_ctrl_f(e))
+        self.bind_all("<Control-h>", lambda e: self._on_ctrl_h(e))
         self.bind_all("<Delete>", lambda e: self._on_shortcut_delete(e))
         self.bind_all("<Control-d>", lambda e: self._on_duplicate_prompt())
         self.bind_all("<Escape>", lambda e: self._on_escape())
@@ -358,6 +433,99 @@ class PromptLibraryApp(ctk.CTk):
     def _focus_search(self):
         self.search_entry.focus_set()
         self.search_entry.select_range(0, "end")
+
+    def _on_ctrl_f(self, event=None):
+        widget = self.focus_get()
+        if self.editor.is_content_focused(widget):
+            self.editor.open_find_dialog()
+            return "break"
+        self._focus_search()
+        return "break"
+
+    def _on_ctrl_h(self, event=None):
+        widget = self.focus_get()
+        if self.editor.is_content_focused(widget):
+            self.editor.open_replace_dialog()
+            return "break"
+        return "break"
+
+    def _toggle_theme(self):
+        self.theme = "dark" if self.theme_var.get() else "light"
+        set_theme(self.theme)
+        ctk.set_appearance_mode(self.theme)
+        self.COLORS = self._get_theme_colors()
+        self.configure(fg_color=self.COLORS["bg"])
+        self._rebuild_ui()
+
+    def _rebuild_ui(self):
+        current_prompt = self.current_prompt
+        editor_state = self._capture_editor_state()
+        self.has_unsaved_changes = editor_state["has_unsaved_changes"]
+        self.active_filter = editor_state["active_filter"]
+        self.search_entry_var = None
+        self.sort_var = None
+
+        for child in self.winfo_children():
+            child.destroy()
+
+        self._build_ui()
+        self._refresh_list()
+        self._restore_editor_state(current_prompt, editor_state)
+
+    def _capture_editor_state(self) -> dict:
+        state = {
+            "has_unsaved_changes": self.has_unsaved_changes,
+            "active_filter": self.active_filter,
+            "search": "",
+            "sort": None,
+            "draft": None,
+        }
+        try:
+            state["search"] = self.search_entry_var.get()
+        except Exception:
+            state["search"] = ""
+        try:
+            state["sort"] = self.sort_var.get()
+        except Exception:
+            state["sort"] = None
+
+        if self.current_prompt:
+            state["draft"] = {
+                "name": self.editor.name_entry.get().strip(),
+                "category": self.editor.category_var.get(),
+                "tags": self.editor.tags_entry.get(),
+                "content": self.editor._get_current_content(),
+                "sensitive": bool(self.editor.sensitive_var.get()),
+            }
+        return state
+
+    def _restore_editor_state(self, prompt: Optional[Prompt], state: dict):
+        if state.get("sort"):
+            self.sort_var.set(state["sort"])
+            self.prompt_list.set_sort(self.sort_var.get())
+
+        self.search_entry_var.set(state.get("search", ""))
+        self.prompt_list.set_search(state.get("search", ""))
+        self._update_clear_button()
+
+        # Restore filter selection
+        active = state.get("active_filter", "All")
+        if active in self.filter_buttons:
+            self._on_filter(active)
+
+        if prompt:
+            self.current_prompt = prompt
+            self.editor.set_prompt(prompt)
+            draft = state.get("draft")
+            if draft:
+                self.editor.name_entry.delete(0, "end")
+                self.editor.name_entry.insert(0, draft["name"])
+                self.editor.category_var.set(draft["category"])
+                self.editor.tags_entry.delete(0, "end")
+                self.editor.tags_entry.insert(0, draft["tags"])
+                self.editor.sensitive_var.set(draft["sensitive"])
+                self.editor._set_current_content(draft["content"])
+            self.editor.update_save_state(state.get("has_unsaved_changes", False))
 
     def _on_shortcut_save(self):
         if self.current_prompt:
@@ -385,6 +553,9 @@ class PromptLibraryApp(ctk.CTk):
         self.prompts = self.storage.load_prompts()
         self.prompt_list.set_prompts(self.prompts)
         self._update_count()
+        self._update_filter_counts()
+        if self.storage.consume_restore_flag():
+            self._show_toast("Library restored from backup")
 
     def _update_count(self):
         """Update prompt count."""
@@ -406,6 +577,7 @@ class PromptLibraryApp(ctk.CTk):
         term = self.search_entry_var.get()
         self.prompt_list.set_search(term)
         self._update_count()
+        self._update_filter_counts()
         self._update_clear_button()
 
     def _clear_search(self):
@@ -415,6 +587,7 @@ class PromptLibraryApp(ctk.CTk):
         self.search_entry_var.set("")
         self.prompt_list.set_search("")
         self._update_count()
+        self._update_filter_counts()
         self._update_clear_button()
         self.search_entry.focus_set()
 
@@ -427,6 +600,7 @@ class PromptLibraryApp(ctk.CTk):
     def _on_sort_change(self):
         self.prompt_list.set_sort(self.sort_var.get())
         self._update_count()
+        set_sort_option(self.sort_var.get())
 
     def _on_filter(self, display_name: str):
         """Handle filter chip click."""
@@ -454,6 +628,38 @@ class PromptLibraryApp(ctk.CTk):
         else:
             self.prompt_list.set_category_filter(Category(cat_value))
         self._update_count()
+        self._update_filter_counts()
+
+    def _update_filter_counts(self):
+        """Update category filter chip labels with counts."""
+        term = self.search_entry_var.get().strip().lower()
+
+        def matches_search(prompt: Prompt) -> bool:
+            if not term:
+                return True
+            return (
+                term in prompt.name.lower()
+                or term in prompt.content.lower()
+                or any(term in t.lower() for t in prompt.tags)
+            )
+
+        counts: dict[str, int] = {key: 0 for key in self.filter_order}
+        for prompt in self.prompts:
+            if not matches_search(prompt):
+                continue
+            counts["All"] += 1
+            if prompt.category.value == "Persona":
+                counts["Persona"] += 1
+            elif prompt.category.value == "System Prompt":
+                counts["System"] += 1
+            elif prompt.category.value == "Template":
+                counts["Template"] += 1
+            else:
+                counts["Other"] += 1
+
+        for key, btn in self.filter_buttons.items():
+            label = self.filter_labels.get(key, key)
+            btn.configure(text=f"{label} ({counts.get(key, 0)})")
 
     def _on_prompt_select(self, prompt: Prompt):
         """Handle prompt selection."""
@@ -507,6 +713,9 @@ class PromptLibraryApp(ctk.CTk):
 
     def _on_prompt_list_copy(self, prompt: Prompt):
         """Copy content from list context menu."""
+        if prompt.sensitive:
+            if not self.editor.confirm_sensitive_copy("Copy"):
+                return
         self._on_copy(prompt.content)
 
     def _on_prompt_list_rename(self, prompt: Prompt):

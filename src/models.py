@@ -21,6 +21,7 @@ class Prompt:
     content: str
     category: Category = Category.OTHER
     tags: List[str] = field(default_factory=list)
+    sensitive: bool = False
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -33,6 +34,7 @@ class Prompt:
             "content": self.content,
             "category": self.category.value,
             "tags": self.tags,
+            "sensitive": self.sensitive,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -46,6 +48,7 @@ class Prompt:
             content=data["content"],
             category=Category(data.get("category", "Other")),
             tags=data.get("tags", []),
+            sensitive=bool(data.get("sensitive", False)),
             created_at=data.get("created_at", datetime.now().isoformat()),
             updated_at=data.get("updated_at", datetime.now().isoformat()),
         )

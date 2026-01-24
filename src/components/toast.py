@@ -27,10 +27,12 @@ class Toast(ctk.CTkToplevel):
         # without complex hacking, so we maintain matching fg_color.
         
         # Pill container
+        pill_bg = colors.get("toast_bg", colors["text_primary"])
+        pill_text = colors.get("toast_text", "#FFFFFF")
         self.pill = ctk.CTkFrame(
             self,
-            fg_color=colors["text_primary"], # Dark pill for contrast
-            corner_radius=20, # Very rounded
+            fg_color=pill_bg,
+            corner_radius=20,
             border_width=0,
         )
         self.pill.pack(fill="both", expand=True)
@@ -40,7 +42,7 @@ class Toast(ctk.CTkToplevel):
             self.pill,
             text=message,
             font=ctk.CTkFont(family="Segoe UI Variable Text", size=12, weight="bold"),
-            text_color="#FFFFFF", # White text on dark pill
+            text_color=pill_text,
         )
         self.label.pack(side="left", padx=20, pady=8)
 

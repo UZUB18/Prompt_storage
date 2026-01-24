@@ -1,4 +1,4 @@
-"""Prompt list component - Apple 2026 Edition."""
+﻿"""Prompt list component - Apple 2026 Edition."""
 import customtkinter as ctk
 import tkinter as tk
 from typing import List, Optional, Callable, Dict
@@ -32,7 +32,7 @@ class PromptListItem(ctk.CTkFrame):
             cursor="hand2",
         )
 
-        # Container with padding
+        # Container with padding (8/12/16 rhythm)
         container = ctk.CTkFrame(self, fg_color="transparent")
         container.pack(fill="both", expand=True, padx=16, pady=12)
 
@@ -49,67 +49,47 @@ class PromptListItem(ctk.CTkFrame):
         self.name_label = ctk.CTkLabel(
             container,
             text=prompt.name,
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=14),
             text_color=colors["text_primary"],
             anchor="w",
         )
-        self.name_label.pack(fill="x")
+        self.name_label.pack(fill="x", pady=(0, 8))
 
-        # Snippet (preview)
-        snippet = self._build_snippet(prompt.content)
-        self.snippet_label = ctk.CTkLabel(
+        # Metadata + preview line (faint)
+        meta_text = self._build_metadata(prompt)
+        preview = "" if prompt.sensitive else self._build_snippet(prompt.content)
+        line_text = meta_text
+        if preview:
+            line_text = f"{meta_text} · {preview}" if meta_text else preview
+        line_text = self._clamp_text(line_text, max_chars=160)
+
+        self.meta_label = ctk.CTkLabel(
             container,
-            text=snippet,
+            text=line_text,
             font=ctk.CTkFont(family="Segoe UI", size=11),
-            text_color=colors["text_secondary"],
+            text_color=colors["text_muted"],
             anchor="w",
             justify="left",
-            wraplength=220,
+            wraplength=240,
         )
-        self.snippet_label.pack(fill="x", pady=(4, 0))
+        self.meta_label.pack(fill="x")
 
-        # Meta row: Category badge + timestamp
-        meta_frame = ctk.CTkFrame(container, fg_color="transparent")
-        meta_frame.pack(fill="x", pady=(6, 0))
-
-        # Category badge (pill style)
-        self.category_badge = ctk.CTkLabel(
-            meta_frame,
-            text=prompt.category.value,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=colors["accent"],
-            fg_color=colors["category_bg"],
-            corner_radius=6,
-            padx=8,
-            pady=2,
-        )
-        self.category_badge.pack(side="left")
-
-        # Timestamp
-        time_text = self._format_time(prompt.updated_at)
-        self.time_label = ctk.CTkLabel(
-            meta_frame,
-            text=time_text,
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            text_color=colors["text_muted"],
-        )
-        self.time_label.pack(side="left", padx=(8, 0))
-
-        # Bind events
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
-        self.bind("<Button-1>", self._on_click)
-        container.bind("<Button-1>", self._on_click)
-        self.name_label.bind("<Button-1>", self._on_click)
-        meta_frame.bind("<Button-1>", self._on_click)
-        self.category_badge.bind("<Button-1>", self._on_click)
-        self.time_label.bind("<Button-1>", self._on_click)
-        self.bind("<Button-3>", self._on_right_click)
-        container.bind("<Button-3>", self._on_right_click)
-        self.name_label.bind("<Button-3>", self._on_right_click)
-        meta_frame.bind("<Button-3>", self._on_right_click)
-        self.category_badge.bind("<Button-3>", self._on_right_click)
-        self.time_label.bind("<Button-3>", self._on_right_click)
+        # Bind events to all child widgets so the entire item is clickable
+        widgets = [
+            self,
+            container,
+            self.name_label,
+            self.meta_label,
+        ]
+        for widget in widgets:
+            widget.bind("<Enter>", self._on_enter)
+            widget.bind("<Leave>", self._on_leave)
+            widget.bind("<Button-1>", self._on_click)
+            widget.bind("<Button-3>", self._on_right_click)
+            try:
+                widget.configure(cursor="hand2")
+            except Exception:
+                pass
 
     def _format_time(self, iso_time: str) -> str:
         """Format timestamp to relative time."""
@@ -138,21 +118,47 @@ class PromptListItem(ctk.CTkFrame):
         first = lines[0]
         second = lines[1] if len(lines) > 1 else ""
 
-        max_first = 110
-        max_second = 90
+        max_first = 60
+        max_second = 60
 
         if len(first) > max_first:
-            return first[:max_first - 3] + "..."
+            first = first[: max_first - 1].rstrip() + "…"
 
         if second:
-            second = second if len(second) <= max_second else second[:max_second - 3] + "..."
-            return f"{first} - {second}"
+            second = second if len(second) <= max_second else second[: max_second - 1].rstrip() + "…"
+            return f"{first} · {second}"
 
         return first
 
+    def _build_blurred_snippet(self, content: str) -> str:
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        if not lines:
+            return "••••••••••"
+        preview = lines[0][:40]
+        return "•" * max(10, len(preview))
+
+    def _build_metadata(self, prompt: Prompt) -> str:
+        parts = []
+        if prompt.sensitive:
+            parts.append("🔒 Sensitive")
+        parts.append(f"📁 {prompt.category.value}")
+        tags = [t for t in prompt.tags if t]
+        if tags:
+            tags_text = ", ".join(tags)
+            if len(tags_text) > 36:
+                tags_text = tags_text[:33] + "..."
+            parts.append(f"🏷 {tags_text}")
+        parts.append(f"🕒 {self._format_time(prompt.updated_at)}")
+        return " · ".join(parts)
+
+    def _clamp_text(self, text: str, max_chars: int) -> str:
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 1].rstrip() + "…"
+
     def _on_enter(self, event=None):
         if not self.selected:
-            self.configure(fg_color=self.colors["surface"])
+            self.configure(fg_color=self.colors["card"])
 
     def _on_leave(self, event=None):
         if not self.selected:
@@ -168,7 +174,7 @@ class PromptListItem(ctk.CTkFrame):
         self.selected = selected
         if selected:
             self.configure(
-                fg_color=self.colors["surface"],
+                fg_color=self.colors["accent_glow"],
                 border_width=1,
                 border_color=self.colors["accent"],
             )
@@ -190,6 +196,8 @@ class PromptList(ctk.CTkScrollableFrame):
         on_select: Callable[[Prompt], None],
         on_copy: Callable[[Prompt], None],
         on_rename: Callable[[Prompt], None],
+        on_clear_search: Callable[[], None],
+        on_new_prompt: Callable[[], None],
         colors: Dict[str, str],
         **kwargs
     ):
@@ -203,6 +211,8 @@ class PromptList(ctk.CTkScrollableFrame):
         self.on_select = on_select
         self.on_copy = on_copy
         self.on_rename = on_rename
+        self.on_clear_search = on_clear_search
+        self.on_new_prompt = on_new_prompt
         self.colors = colors
         self.items: List[PromptListItem] = []
         self.prompts: List[Prompt] = []
@@ -217,12 +227,44 @@ class PromptList(ctk.CTkScrollableFrame):
         self.context_menu.add_command(label="Copy", command=self._on_context_copy)
         self.context_menu.add_command(label="Rename", command=self._on_context_rename)
 
+        self.empty_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.empty_label = ctk.CTkLabel(
-            self,
+            self.empty_frame,
             text="No prompts match your search or filter.",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=colors["text_muted"],
         )
+        self.empty_label.pack(pady=(0, 12))
+
+        empty_btns = ctk.CTkFrame(self.empty_frame, fg_color="transparent")
+        empty_btns.pack()
+
+        self.empty_clear_btn = ctk.CTkButton(
+            empty_btns,
+            text="Clear search",
+            height=32,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color=colors["surface"],
+            hover_color=colors["border"],
+            text_color=colors["text_secondary"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self.on_clear_search,
+        )
+        self.empty_clear_btn.pack(side="left", padx=(0, 8))
+
+        self.empty_new_btn = ctk.CTkButton(
+            empty_btns,
+            text="New prompt",
+            height=32,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=colors["accent"],
+            hover_color=colors["accent_hover"],
+            command=self.on_new_prompt,
+        )
+        self.empty_new_btn.pack(side="left")
 
     def set_prompts(self, prompts: List[Prompt]):
         """Set prompts and rebuild list."""
@@ -289,11 +331,11 @@ class PromptList(ctk.CTkScrollableFrame):
         for item in self.items:
             item.destroy()
         self.items.clear()
-        self.empty_label.pack_forget()
+        self.empty_frame.pack_forget()
 
         # Create new items
         if not self.filtered_prompts:
-            self.empty_label.pack(pady=30)
+            self.empty_frame.pack(pady=24)
             return
 
         for prompt in self.filtered_prompts:
@@ -341,3 +383,4 @@ class PromptList(ctk.CTkScrollableFrame):
         self.selected_prompt = prompt
         for item in self.items:
             item.set_selected(prompt is not None and item.prompt.id == prompt.id)
+
