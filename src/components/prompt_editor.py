@@ -71,7 +71,7 @@ class PromptEditor(ctk.CTkFrame):
         # Left: Title
         self.title_label = ctk.CTkLabel(
             header,
-            text="✏️  Edit Prompt",
+            text="Edit Prompt",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=colors["text_primary"],
         )
@@ -82,7 +82,13 @@ class PromptEditor(ctk.CTkFrame):
         right_frame.pack(side="right", fill="y")
 
         # AI Testing buttons
-        ai_container = ctk.CTkFrame(right_frame, fg_color="#F5F5F7", corner_radius=8)
+        ai_container = ctk.CTkFrame(
+            right_frame,
+            fg_color=colors["bg"],
+            corner_radius=10,
+            border_width=1,
+            border_color=colors["border"],
+        )
         ai_container.pack(side="left", pady=10, padx=(0, 8))
 
         self.gemini_btn = ctk.CTkButton(
@@ -114,10 +120,17 @@ class PromptEditor(ctk.CTkFrame):
 
         # Copy button
         self.copy_btn = ctk.CTkButton(
-            right_frame, text="📋", width=36, height=36, corner_radius=8,
-            font=ctk.CTkFont(size=16),
-            fg_color="transparent", hover_color="#F5F5F7",
+            right_frame,
+            text="Copy",
+            width=52,
+            height=28,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=colors["surface"],
+            hover_color=colors["bg"],
             text_color=colors["text_secondary"],
+            border_width=1,
+            border_color=colors["border"],
             command=self._on_copy,
         )
         self.copy_btn.pack(side="left", pady=10)
@@ -165,9 +178,20 @@ class PromptEditor(ctk.CTkFrame):
         ).pack(anchor="w", pady=(0, 4))
         
         self.category_var = ctk.StringVar(value=Category.OTHER.value)
+        # CTkOptionMenu doesn't render an entry-like border by default; wrap it.
+        cat_outer = ctk.CTkFrame(
+            cat_frame,
+            fg_color=colors["surface"],
+            corner_radius=10,
+            border_width=1,
+            border_color=colors["border"],
+        )
+        cat_outer.pack(fill="x")
         self.category_dropdown = ctk.CTkOptionMenu(
-            cat_frame, values=[c.value for c in Category],
-            variable=self.category_var, height=38,
+            cat_outer,
+            values=[c.value for c in Category],
+            variable=self.category_var,
+            height=36,
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             fg_color=colors["surface"],
             text_color=colors["text_primary"],
@@ -176,10 +200,10 @@ class PromptEditor(ctk.CTkFrame):
             dropdown_fg_color=colors["surface"],
             dropdown_text_color=colors["text_primary"],
             dropdown_hover_color=colors["accent_glow"],
-            corner_radius=10,
+            corner_radius=9,
             command=lambda _: self._on_field_change(),
         )
-        self.category_dropdown.pack(fill="x")
+        self.category_dropdown.pack(fill="x", padx=1, pady=1)
 
         # Row 1: Tags (spans both columns)
         tags_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -242,7 +266,7 @@ class PromptEditor(ctk.CTkFrame):
 
         # State label
         self.state_label = ctk.CTkLabel(
-            footer_inner, text="✓ All changes saved",
+            footer_inner, text="All changes saved",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=colors["text_muted"],
         )
@@ -250,7 +274,7 @@ class PromptEditor(ctk.CTkFrame):
 
         # Save button
         self.save_btn = ctk.CTkButton(
-            footer_inner, text="💾 Save", width=90, height=36, corner_radius=8,
+            footer_inner, text="Save", width=90, height=36, corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
             fg_color=colors["accent"], hover_color=colors["accent_hover"],
             command=self._on_save,
@@ -259,7 +283,7 @@ class PromptEditor(ctk.CTkFrame):
 
         # Delete button
         self.delete_btn = ctk.CTkButton(
-            footer_inner, text="Delete", width=70, height=36, corner_radius=8,
+            footer_inner, text="Delete", width=70, height=36, corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=13),
             fg_color="transparent", hover_color="#FEE2E2",
             text_color=colors["danger"],
@@ -293,7 +317,7 @@ class PromptEditor(ctk.CTkFrame):
 
     def _update_state_label(self):
         if self.current_prompt:
-            self.state_label.configure(text="✓ All changes saved", text_color=self.colors["text_muted"])
+            self.state_label.configure(text="All changes saved", text_color=self.colors["text_muted"])
 
     def _update_char_count(self):
         content = self.content_text.get("1.0", "end-1c")
@@ -301,7 +325,7 @@ class PromptEditor(ctk.CTkFrame):
 
     def update_save_state(self, has_changes: bool):
         if has_changes:
-            self.state_label.configure(text="● Unsaved changes", text_color=self.colors["accent"])
+            self.state_label.configure(text="Unsaved changes", text_color=self.colors["accent"])
         else:
             self._update_state_label()
 

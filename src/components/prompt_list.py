@@ -142,11 +142,11 @@ class PromptListItem(ctk.CTkFrame):
         max_second = 90
 
         if len(first) > max_first:
-            return first[:max_first - 1] + "…"
+            return first[:max_first - 3] + "..."
 
         if second:
-            second = second if len(second) <= max_second else second[:max_second - 1] + "…"
-            return f"{first} — {second}"
+            second = second if len(second) <= max_second else second[:max_second - 3] + "..."
+            return f"{first} - {second}"
 
         return first
 
@@ -268,7 +268,7 @@ class PromptList(ctk.CTkScrollableFrame):
         if not prompts:
             return prompts
 
-        if self.sort_option == "Name A→Z":
+        if self.sort_option == "Name A->Z":
             return sorted(prompts, key=lambda p: p.name.lower())
 
         def parse_time(value: str) -> datetime:

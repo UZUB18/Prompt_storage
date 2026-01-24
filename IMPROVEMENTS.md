@@ -13,19 +13,22 @@ Below is a purely additive / improvement-only backlog. Items are grouped by impa
 
 ## UX + workflow (high impact)
 
+### Search + browse quality upgrades (done)
+
+- **S** Sort options: **Recently updated**, **Name A->Z**, **Created**; default to recently updated. ✅
+- **S** Show a 1-2 line preview snippet in list items (first non-empty line of content). ✅
+- **S** Add "empty results" state ("No prompts match your search/filter"). ✅
+- **S** Debounce search input (avoid rebuilding list on every keystroke for large libraries). ✅
+- **S** Add "Clear search" (x button) and `Esc` to clear/focus logic. ✅
+
 - **S** Add "Unsaved changes" guard when switching prompts (confirm Save / Discard / Cancel).
 - **S** Add "Unsaved changes" guard on window close (`WM_DELETE_WINDOW`).
 - **S** Add keyboard shortcuts: `Ctrl+N` (new), `Ctrl+S` (save), `Ctrl+F` (focus search), `Del` (delete), `Ctrl+D` (duplicate).
 - **S** Add "Duplicate prompt" action (keeps content/tags/category, new `id`, new name like "(copy)").
 - **S** Add quick "Copy" from list items (context menu / right-click), not only from the editor.
 - **S** Add "Rename" from list context menu (no need to open editor first).
-- **S** Add sort options: **Recently updated**, **Name A->Z**, **Created**; default to recently updated.
-- **S** Show a 1-2 line preview snippet in list items (first non-empty line of content).
 - **S** Make filter chips include **Other** (currently hidden) and optionally "All categories" dropdown.
 - **S** Show counts per category (e.g., Persona (12)).
-- **S** Add "Clear search" (x button) and `Esc` to clear/focus logic.
-- **S** Debounce search input (avoid rebuilding list on every keystroke for large libraries).
-- **S** Add "empty results" state ("No prompts match your search/filter").
 - **M** Add multi-select + bulk actions (delete, export, tag).
 - **M** Add tag chips UI (clickable tags, quick add/remove, tag autocomplete from existing tags).
 - **M** Add favorites/pins (star a prompt; pin section at top).

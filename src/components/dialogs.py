@@ -81,11 +81,20 @@ class NewPromptDialog(ctk.CTkToplevel):
         cat_label.pack(fill="x", pady=(0, 8), padx=4)
 
         self.category_var = ctk.StringVar(value=Category.OTHER.value)
-        self.category_dropdown = ctk.CTkOptionMenu(
+        # CTkOptionMenu doesn't render an entry-like border by default; wrap it.
+        cat_outer = ctk.CTkFrame(
             content,
+            fg_color=colors["surface"],
+            corner_radius=12,
+            border_width=1,
+            border_color=colors["border"],
+        )
+        cat_outer.pack(fill="x", pady=(0, 20))
+        self.category_dropdown = ctk.CTkOptionMenu(
+            cat_outer,
             values=[c.value for c in Category],
             variable=self.category_var,
-            height=44,
+            height=42,
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             fg_color=colors["surface"],
             text_color=colors["text_primary"],
@@ -94,9 +103,9 @@ class NewPromptDialog(ctk.CTkToplevel):
             dropdown_fg_color=colors["surface"],
             dropdown_text_color=colors["text_primary"],
             dropdown_hover_color=colors["accent_glow"],
-            corner_radius=12,
+            corner_radius=11,
         )
-        self.category_dropdown.pack(fill="x", pady=(0, 20))
+        self.category_dropdown.pack(fill="x", padx=1, pady=1)
 
         # Tags field
         tags_label = ctk.CTkLabel(

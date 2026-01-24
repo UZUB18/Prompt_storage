@@ -134,7 +134,7 @@ class PromptLibraryApp(ctk.CTk):
         self.search_entry = ctk.CTkEntry(
             search_frame,
             height=36,
-            placeholder_text="?? Search...",
+            placeholder_text="Search...",
             font=ctk.CTkFont(family="Segoe UI", size=13),
             fg_color=self.COLORS["surface"],
             border_color=self.COLORS["border"],
@@ -148,10 +148,10 @@ class PromptLibraryApp(ctk.CTk):
 
         self.clear_search_btn = ctk.CTkButton(
             search_frame,
-            text="×",
-            width=32,
-            height=32,
-            corner_radius=8,
+            text="x",
+            width=36,
+            height=36,
+            corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             fg_color=self.COLORS["surface"],
             hover_color=self.COLORS["border"],
@@ -163,11 +163,14 @@ class PromptLibraryApp(ctk.CTk):
         )
         self.clear_search_btn.grid(row=0, column=1)
 
-        # Row 2: Segmented filter control (compact)        filter_container = ctk.CTkFrame(
+        # Row 2: Segmented filter control (compact)
+        filter_container = ctk.CTkFrame(
             sidebar,
             fg_color="#E5E5EA",
-            corner_radius=8,
+            corner_radius=10,
             height=32,
+            border_width=1,
+            border_color=self.COLORS["border"],
         )
         filter_container.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 12))
         filter_container.grid_propagate(False)
@@ -213,8 +216,19 @@ class PromptLibraryApp(ctk.CTk):
         sort_label.grid(row=0, column=0, sticky="w", padx=(4, 8))
 
         self.sort_var = ctk.StringVar(value="Recently updated")
-        self.sort_menu = ctk.CTkOptionMenu(
+        # Wrap the option menu so it visually matches CTkEntry borders.
+        sort_menu_outer = ctk.CTkFrame(
             sort_frame,
+            fg_color=self.COLORS["surface"],
+            corner_radius=10,
+            border_width=1,
+            border_color=self.COLORS["border"],
+        )
+        sort_menu_outer.grid(row=0, column=1, sticky="ew")
+        sort_menu_outer.grid_columnconfigure(0, weight=1)
+
+        self.sort_menu = ctk.CTkOptionMenu(
+            sort_menu_outer,
             values=["Recently updated", "Name A->Z", "Created"],
             variable=self.sort_var,
             height=30,
@@ -226,10 +240,10 @@ class PromptLibraryApp(ctk.CTk):
             dropdown_fg_color=self.COLORS["surface"],
             dropdown_text_color=self.COLORS["text_primary"],
             dropdown_hover_color=self.COLORS["accent_glow"],
-            corner_radius=8,
+            corner_radius=9,
             command=lambda _: self._on_sort_change(),
         )
-        self.sort_menu.grid(row=0, column=1, sticky="ew")
+        self.sort_menu.pack(fill="x", padx=1, pady=1)
 
         # Row 4: Count label
         self.count_label = ctk.CTkLabel(
@@ -270,7 +284,7 @@ class PromptLibraryApp(ctk.CTk):
 
         import_btn = ctk.CTkButton(
             btn_container,
-            text="â†‘ Import",
+            text="Import",
             height=36,
             corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=12),
@@ -285,7 +299,7 @@ class PromptLibraryApp(ctk.CTk):
 
         export_btn = ctk.CTkButton(
             btn_container,
-            text="â†“ Export",
+            text="Export",
             height=36,
             corner_radius=10,
             font=ctk.CTkFont(family="Segoe UI", size=12),
@@ -423,13 +437,13 @@ class PromptLibraryApp(ctk.CTk):
                 btn.configure(
                     fg_color=self.COLORS["surface"],
                     text_color=self.COLORS["accent"],
-                    font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                    font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
                 )
             else:
                 btn.configure(
                     fg_color="transparent",
                     text_color=self.COLORS["text_secondary"],
-                    font=ctk.CTkFont(family="Segoe UI", size=12, weight="normal"),
+                    font=ctk.CTkFont(family="Segoe UI", size=11, weight="normal"),
                 )
 
         # Apply filter using the mapped category value
