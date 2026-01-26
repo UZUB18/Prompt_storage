@@ -39,3 +39,6 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 Output:
 `dist-installer\PromptLibraryProSetup.exe`
 
+## Releasing (GitHub)
+
+See `RELEASING.md`.
