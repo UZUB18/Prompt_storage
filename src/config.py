@@ -91,3 +91,26 @@ def set_theme(theme: str):
     config = load_config()
     config["theme"] = theme
     save_config(config)
+
+
+def get_ui_scale(default: str = "auto") -> str:
+    """
+    UI scaling preference.
+
+    Stored as:
+    - "auto" (recommended)
+    - "1.25" (stringified float)
+    """
+    config = load_config()
+    value = config.get("ui_scale")
+    if isinstance(value, (int, float)):
+        return str(float(value))
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return default
+
+
+def set_ui_scale(value: str):
+    config = load_config()
+    config["ui_scale"] = value
+    save_config(config)

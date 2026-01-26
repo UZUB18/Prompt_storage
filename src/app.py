@@ -7,7 +7,16 @@ import shutil
 
 from .models import Prompt, Category
 from .storage import Storage
-from .config import get_data_dir, set_data_dir, get_sort_option, set_sort_option, get_theme, set_theme
+from .config import (
+    get_data_dir,
+    set_data_dir,
+    get_sort_option,
+    set_sort_option,
+    get_theme,
+    set_theme,
+    get_ui_scale,
+    set_ui_scale,
+)
 from .resources import resource_path
 from .components.prompt_list import PromptList
 from .components.prompt_editor import PromptEditor
@@ -74,6 +83,10 @@ class PromptLibraryApp(ctk.CTk):
         ctk.set_appearance_mode(self.theme)
         ctk.set_default_color_theme("blue")
 
+        # UI scaling (apply before building widgets)
+        self.ui_scale_pref = get_ui_scale()
+        self._apply_ui_scaling(self.ui_scale_pref)
+
         self.COLORS = self._get_theme_colors()
         self.title("Prompt Library Pro")
         self.geometry("1200x800")
@@ -106,6 +119,52 @@ class PromptLibraryApp(ctk.CTk):
 
     def _get_theme_colors(self) -> dict:
         return self.DARK_COLORS if self.theme == "dark" else self.LIGHT_COLORS
+
+    def _round_scale(self, value: float) -> float:
+        # Round to nearest 0.05 for stability
+        return max(0.75, min(2.5, round(value / 0.05) * 0.05))
+
+    def _compute_auto_scale(self) -> float:
+        # Prefer actual DPI when available (helps on 4K/high-DPI monitors).
+        try:
+            ppi = float(self.winfo_fpixels("1i"))
+        except Exception:
+            ppi = 96.0
+        dpi_scale = ppi / 96.0
+
+        # Also consider resolution: big/high-res monitors often benefit from larger UI.
+        try:
+            w = int(self.winfo_screenwidth())
+        except Exception:
+            w = 1920
+
+        if w >= 3840:
+            res_scale = 1.50
+        elif w >= 2560:
+            res_scale = 1.25
+        elif w >= 1920:
+            res_scale = 1.10
+        else:
+            res_scale = 1.00
+
+        return self._round_scale(max(dpi_scale, res_scale, 1.0))
+
+    def _apply_ui_scaling(self, pref: str):
+        # pref is "auto" or a float-as-string like "1.25"
+        if isinstance(pref, str) and pref.strip().lower() == "auto":
+            scale = self._compute_auto_scale()
+        else:
+            try:
+                scale = float(pref)
+            except Exception:
+                scale = self._compute_auto_scale()
+            scale = self._round_scale(scale)
+
+        try:
+            ctk.set_widget_scaling(scale)
+            ctk.set_window_scaling(scale)
+        except Exception:
+            pass
 
     def _build_ui(self):
         """Build the application UI."""
@@ -326,6 +385,61 @@ class PromptLibraryApp(ctk.CTk):
         )
         self.theme_toggle.grid(row=0, column=1, sticky="e")
 
+        # UI scale control (useful on large/high-DPI monitors)
+        ui_scale_frame = ctk.CTkFrame(count_frame, fg_color="transparent")
+        ui_scale_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        ui_scale_frame.grid_columnconfigure(1, weight=1)
+
+        ui_scale_label = ctk.CTkLabel(
+            ui_scale_frame,
+            text="UI Scale",
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            text_color=self.COLORS["text_muted"],
+        )
+        ui_scale_label.grid(row=0, column=0, sticky="w", padx=(0, 8))
+
+        ui_scale_options = ["Auto", "100%", "110%", "125%", "150%", "175%", "200%"]
+        pref = (get_ui_scale() or "auto").strip().lower()
+        if pref == "auto":
+            display = "Auto"
+        else:
+            try:
+                display = f"{int(round(float(pref) * 100))}%"
+            except Exception:
+                display = "Auto"
+        if display not in ui_scale_options:
+            display = "Auto"
+
+        self.ui_scale_var = ctk.StringVar(value=display)
+
+        ui_scale_outer = ctk.CTkFrame(
+            ui_scale_frame,
+            fg_color=self.COLORS["surface"],
+            corner_radius=10,
+            border_width=1,
+            border_color=self.COLORS["border"],
+        )
+        ui_scale_outer.grid(row=0, column=1, sticky="ew")
+        ui_scale_outer.grid_columnconfigure(0, weight=1)
+
+        self.ui_scale_menu = ctk.CTkOptionMenu(
+            ui_scale_outer,
+            values=ui_scale_options,
+            variable=self.ui_scale_var,
+            height=28,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=self.COLORS["surface"],
+            text_color=self.COLORS["text_primary"],
+            button_color=self.COLORS["surface"],
+            button_hover_color=self.COLORS["bg"],
+            dropdown_fg_color=self.COLORS["surface"],
+            dropdown_text_color=self.COLORS["text_primary"],
+            dropdown_hover_color=self.COLORS["accent_glow"],
+            corner_radius=9,
+            command=lambda _: self._on_ui_scale_change(),
+        )
+        self.ui_scale_menu.pack(fill="x", padx=1, pady=1)
+
         # Row 5: Divider between controls and list (sticky header)
         ctk.CTkFrame(sidebar, height=1, fg_color=self.COLORS["border"]).grid(
             row=5, column=0, sticky="ew", padx=16, pady=(0, 8)
@@ -462,6 +576,24 @@ class PromptLibraryApp(ctk.CTk):
         self.COLORS = self._get_theme_colors()
         self.configure(fg_color=self.COLORS["bg"])
         self._rebuild_ui()
+
+    def _on_ui_scale_change(self):
+        value = (self.ui_scale_var.get() or "Auto").strip()
+        if value.lower() == "auto":
+            pref = "auto"
+        else:
+            # "125%" -> 1.25
+            try:
+                pct = float(value.replace("%", "").strip())
+                pref = str(pct / 100.0)
+            except Exception:
+                pref = "auto"
+
+        self.ui_scale_pref = pref
+        set_ui_scale(pref)
+        self._apply_ui_scaling(pref)
+        self._rebuild_ui()
+        self._show_toast(f"UI scale: {value}")
 
     def _rebuild_ui(self):
         current_prompt = self.current_prompt
