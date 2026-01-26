@@ -8,6 +8,7 @@ import shutil
 from .models import Prompt, Category
 from .storage import Storage
 from .config import get_data_dir, set_data_dir, get_sort_option, set_sort_option, get_theme, set_theme
+from .resources import resource_path
 from .components.prompt_list import PromptList
 from .components.prompt_editor import PromptEditor
 from .components.dialogs import NewPromptDialog, UnsavedChangesDialog, RenamePromptDialog, ConfirmDialog
@@ -78,6 +79,11 @@ class PromptLibraryApp(ctk.CTk):
         self.geometry("1200x800")
         self.minsize(1000, 700)
         self.configure(fg_color=self.COLORS["bg"])
+        try:
+            self.iconbitmap(str(resource_path("prompt_library.ico")))
+        except Exception:
+            # Not critical (e.g., missing icon on some platforms / window managers)
+            pass
 
         # State
         data_dir = get_data_dir()

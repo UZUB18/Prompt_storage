@@ -24,6 +24,7 @@ wheels/
 venv/
 ENV/
 env/
+.venv/
 
 # IDE
 .vscode/
@@ -35,6 +36,10 @@ env/
 .codex/
 **/.codex/
 codex.local.*
+
+# Local build artifacts
+dist-installer/
+PromptLibraryPro.spec
 
 # Data files (local storage)
 data/prompts.json

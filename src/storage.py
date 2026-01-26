@@ -1,6 +1,7 @@
 """JSON-based storage for prompts."""
 import json
 import os
+import sys
 import uuid
 from pathlib import Path
 from typing import List
@@ -16,14 +17,45 @@ class Storage:
     def __init__(self, data_dir: str = None):
         """Initialize storage with optional custom data directory."""
         if data_dir is None:
-            # Default to 'data' folder next to the app
-            self.data_dir = Path(__file__).parent.parent / "data"
+            self.data_dir = self._default_data_dir()
         else:
             self.data_dir = Path(data_dir)
         
         self.prompts_file = self.data_dir / "prompts.json"
         self._restored_from_backup = False
         self._ensure_data_dir()
+
+    @staticmethod
+    def _default_data_dir() -> Path:
+        """
+        Pick a safe default storage directory.
+
+        - When packaged (PyInstaller / frozen): store in the user's AppData by default,
+          with an optional "portable mode" if a marker file exists next to the exe.
+        - When running from source: keep using the repo's ./data folder if present
+          (to avoid surprising developers), otherwise fall back to AppData.
+        """
+        # Packaged app: prefer per-user AppData (Program Files etc. may be read-only).
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            if (exe_dir / "PROMPTLIB_PORTABLE").exists() or (exe_dir / "portable.txt").exists():
+                return exe_dir / "data"
+            return Storage._user_data_dir()
+
+        # Source/dev: use repo-local data/ if it exists.
+        repo_data = Path(__file__).resolve().parent.parent / "data"
+        if repo_data.exists():
+            return repo_data
+
+        return Storage._user_data_dir()
+
+    @staticmethod
+    def _user_data_dir() -> Path:
+        """OS-appropriate per-user data directory (Windows-friendly)."""
+        appdata = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+        if appdata:
+            return Path(appdata) / "PromptLibraryPro"
+        return Path.home() / ".prompt_library_pro"
 
     def _ensure_data_dir(self):
         """Create data directory if it doesn't exist."""
