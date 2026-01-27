@@ -17,6 +17,7 @@ except ImportError:
 
 from ..models import Prompt, Category
 from .dialogs import FindReplaceDialog, ConfirmDialog
+from .tag_chips import TagChipsInput
 
 
 class PromptEditor(ctk.CTkFrame):
@@ -29,6 +30,9 @@ class PromptEditor(ctk.CTkFrame):
         on_save: Callable[[Prompt], None],
         on_delete: Callable[[str], None],
         on_copy: Callable[[str], None],
+        on_toggle_pin: Callable[[Prompt], None],
+        on_show_history: Callable[[Prompt], None],
+        on_version_bump: Callable[[Prompt], None],
         on_toast: Callable[[str], None],
         on_change: Callable[[], None],
         colors: Dict[str, str],
@@ -38,6 +42,9 @@ class PromptEditor(ctk.CTkFrame):
         self.on_save = on_save
         self.on_delete = on_delete
         self.on_copy = on_copy
+        self.on_toggle_pin = on_toggle_pin
+        self.on_show_history = on_show_history
+        self.on_version_bump = on_version_bump
         self.on_toast = on_toast
         self.on_change = on_change
         self.colors = colors
@@ -135,6 +142,23 @@ class PromptEditor(ctk.CTkFrame):
             command=lambda: self._test_in_ai("grok"),
         )
         self.grok_btn.pack(side="left", padx=2, pady=3)
+
+        # Pin button
+        self.pin_btn = ctk.CTkButton(
+            right_frame,
+            text="\u2606",
+            width=30,
+            height=28,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=colors["surface"],
+            hover_color=colors["bg"],
+            text_color=colors["text_muted"],
+            border_width=1,
+            border_color=colors["border"],
+            command=self._on_toggle_pin,
+        )
+        self.pin_btn.pack(side="left", pady=10, padx=(0, 8))
 
         # Copy button
         self.copy_btn = ctk.CTkButton(
@@ -249,15 +273,13 @@ class PromptEditor(ctk.CTkFrame):
             text_color=colors["text_muted"],
         ).pack(anchor="w", pady=(0, 4))
         
-        self.tags_entry = ctk.CTkEntry(
-            tags_frame, height=38,
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            fg_color=colors["surface"], border_color=colors["border"],
-            border_width=1, corner_radius=10, text_color=colors["text_primary"],
-            placeholder_text="Add tags separated by commas...",
+        self.tags_input = TagChipsInput(
+            tags_frame,
+            colors=colors,
+            on_change=self._on_field_change,
+            placeholder_text="Add tags (comma or Enter)…",
         )
-        self.tags_entry.pack(fill="x")
-        self.tags_entry.bind("<KeyRelease>", self._on_field_change)
+        self.tags_input.pack(fill="x")
 
         # Row 2: Content label with counts
         content_header = ctk.CTkFrame(content, fg_color="transparent")
@@ -357,6 +379,38 @@ class PromptEditor(ctk.CTkFrame):
         )
         self.format_btn.pack(side="left", padx=(10, 0), pady=6)
 
+        self.version_btn = ctk.CTkButton(
+            left_footer,
+            text="Version +",
+            width=90,
+            height=28,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=self.colors["surface"],
+            hover_color=self.colors["bg"],
+            text_color=self.colors["text_secondary"],
+            border_width=1,
+            border_color=self.colors["border"],
+            command=self._on_version_bump,
+        )
+        self.version_btn.pack(side="left", padx=(8, 0), pady=6)
+
+        self.history_btn = ctk.CTkButton(
+            left_footer,
+            text="History",
+            width=80,
+            height=28,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=self.colors["surface"],
+            hover_color=self.colors["bg"],
+            text_color=self.colors["text_secondary"],
+            border_width=1,
+            border_color=self.colors["border"],
+            command=self._on_show_history,
+        )
+        self.history_btn.pack(side="left", padx=(8, 0), pady=6)
+
         # Save button
         self.save_btn = ctk.CTkButton(
             footer_inner, text="Save", width=90, height=36, corner_radius=10,
@@ -392,16 +446,25 @@ class PromptEditor(ctk.CTkFrame):
         self.name_entry.delete(0, "end")
         self.name_entry.insert(0, prompt.name)
         self.category_var.set(prompt.category.value)
-        self.tags_entry.delete(0, "end")
-        self.tags_entry.insert(0, ", ".join(prompt.tags))
+        self.tags_input.set_tags(prompt.tags)
         self.sensitive_var.set(bool(prompt.sensitive))
         self._hidden_content_cache = prompt.content
         self._content_hidden = bool(prompt.sensitive)
         self._schedule_auto_hide()
         self._apply_sensitive_view()
 
+        self._update_pin_button()
         self._update_state_label()
         self._update_char_count()
+
+    def _update_pin_button(self):
+        if not self.current_prompt:
+            self.pin_btn.configure(text="\u2606", text_color=self.colors["text_muted"])
+            return
+        if self.current_prompt.pinned:
+            self.pin_btn.configure(text="\u2605", text_color=self.colors["accent"])
+        else:
+            self.pin_btn.configure(text="\u2606", text_color=self.colors["text_muted"])
 
     def _update_state_label(self):
         if self.current_prompt:
@@ -427,6 +490,12 @@ class PromptEditor(ctk.CTkFrame):
         self.card.grid_forget()
         self.empty_frame.grid(row=0, column=0, sticky="nsew")
 
+    def get_tags(self) -> list[str]:
+        return self.tags_input.get_tags()
+
+    def set_tags(self, tags: list[str], notify: bool = False):
+        self.tags_input.set_tags(tags, notify=notify)
+
     def _on_field_change(self, event=None):
         if self.current_prompt:
             self.on_change()
@@ -437,7 +506,7 @@ class PromptEditor(ctk.CTkFrame):
             return
         self.current_prompt.name = self.name_entry.get().strip()
         self.current_prompt.category = Category(self.category_var.get())
-        self.current_prompt.tags = [t.strip() for t in self.tags_entry.get().split(",") if t.strip()]
+        self.current_prompt.tags = self.tags_input.get_tags()
         self.current_prompt.content = self._get_current_content()
         self.current_prompt.sensitive = bool(self.sensitive_var.get())
         self.current_prompt.update()
@@ -461,6 +530,22 @@ class PromptEditor(ctk.CTkFrame):
         if not self._confirm_sensitive_copy("Copy"):
             return
         self.on_copy(content)
+
+    def _on_toggle_pin(self):
+        if not self.current_prompt:
+            return
+        self.on_toggle_pin(self.current_prompt)
+        self._update_pin_button()
+
+    def _on_show_history(self):
+        if not self.current_prompt:
+            return
+        self.on_show_history(self.current_prompt)
+
+    def _on_version_bump(self):
+        if not self.current_prompt:
+            return
+        self.on_version_bump(self.current_prompt)
 
     def _copy_text(self, content: str, label: str):
         if not content:
@@ -494,8 +579,9 @@ class PromptEditor(ctk.CTkFrame):
             data = {
                 "name": self.name_entry.get().strip(),
                 "category": self.category_var.get(),
-                "tags": [t.strip() for t in self.tags_entry.get().split(",") if t.strip()],
+                "tags": self.tags_input.get_tags(),
                 "sensitive": bool(self.sensitive_var.get()),
+                "pinned": bool(self.current_prompt.pinned) if self.current_prompt else False,
                 "content": content,
             }
             text = json.dumps(data, ensure_ascii=False, indent=2)

@@ -4,6 +4,7 @@ from tkinter import filedialog
 from typing import Optional
 from pathlib import Path
 import shutil
+import re
 
 from .models import Prompt, Category
 from .storage import Storage
@@ -20,7 +21,15 @@ from .config import (
 from .resources import resource_path
 from .components.prompt_list import PromptList
 from .components.prompt_editor import PromptEditor
-from .components.dialogs import NewPromptDialog, UnsavedChangesDialog, RenamePromptDialog, ConfirmDialog
+from .components.dialogs import (
+    NewPromptDialog,
+    UnsavedChangesDialog,
+    RenamePromptDialog,
+    ConfirmDialog,
+    CommandPaletteDialog,
+    PromptHistoryDialog,
+    TagInputDialog,
+)
 from .components.toast import Toast
 
 
@@ -110,6 +119,12 @@ class PromptLibraryApp(ctk.CTk):
         self.filter_map: dict[str, Optional[str]] = {}
         self.filter_labels: dict[str, str] = {}
         self.filter_order: list[str] = []
+        self._command_palette: Optional[CommandPaletteDialog] = None
+        self.multi_select_mode = False
+        self.bulk_frame = None
+        self.bulk_count_label = None
+        self.bulk_delete_btn = None
+        self.bulk_export_btn = None
 
         # Build UI
         self._build_ui()
@@ -226,6 +241,22 @@ class PromptLibraryApp(ctk.CTk):
         )
         new_btn.pack(side="right")
 
+        self.select_mode_btn = ctk.CTkButton(
+            header,
+            text="Select",
+            width=70,
+            height=32,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            fg_color=self.COLORS["surface"],
+            hover_color=self.COLORS["border"],
+            text_color=self.COLORS["text_secondary"],
+            border_width=1,
+            border_color=self.COLORS["border"],
+            command=self._toggle_multi_select,
+        )
+        self.select_mode_btn.pack(side="right", padx=(0, 8))
+
         # Row 1: Search field + clear button
         search_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
         search_frame.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 12))
@@ -275,9 +306,10 @@ class PromptLibraryApp(ctk.CTk):
         )
         filter_container.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 12))
         filter_container.grid_propagate(False)
-        filter_container.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        filter_container.grid_columnconfigure(tuple(range(6)), weight=1)
 
         self.filter_map = {
+            "Pinned": "__pinned__",
             "All": None,
             "Persona": "Persona",
             "System": "System Prompt",
@@ -285,13 +317,14 @@ class PromptLibraryApp(ctk.CTk):
             "Other": "Other",
         }
         self.filter_labels = {
+            "Pinned": "Pinned",
             "All": "All",
             "Persona": "Persona",
             "System": "System",
             "Template": "Template",
             "Other": "Other",
         }
-        self.filter_order = ["All", "Persona", "System", "Template", "Other"]
+        self.filter_order = ["Pinned", "All", "Persona", "System", "Template", "Other"]
 
         for i, key in enumerate(self.filter_order):
             label = self.filter_labels[key]
@@ -451,6 +484,8 @@ class PromptLibraryApp(ctk.CTk):
             on_select=self._on_prompt_select,
             on_copy=self._on_prompt_list_copy,
             on_rename=self._on_prompt_list_rename,
+            on_toggle_pin=self._on_prompt_list_toggle_pin,
+            on_selection_change=self._on_selection_change,
             on_clear_search=self._clear_search,
             on_new_prompt=self._on_new_prompt,
             colors=self.COLORS,
@@ -459,14 +494,134 @@ class PromptLibraryApp(ctk.CTk):
         self.prompt_list.set_sort(self.sort_var.get())
         self._update_filter_counts()
 
-        # Row 7: Footer actions
+        # Row 7: Bulk actions (hidden until multi-select)
+        self.bulk_frame = ctk.CTkFrame(
+            sidebar,
+            fg_color=self.COLORS["sidebar_bg"],
+            corner_radius=0,
+            height=48,
+        )
+        self.bulk_frame.grid(row=7, column=0, sticky="ew")
+        self.bulk_frame.grid_propagate(False)
+
+        bulk_border = ctk.CTkFrame(self.bulk_frame, height=1, fg_color=self.COLORS["border"])
+        bulk_border.pack(fill="x", side="top")
+
+        bulk_inner = ctk.CTkFrame(self.bulk_frame, fg_color="transparent")
+        bulk_inner.pack(fill="both", expand=True, padx=16, pady=8)
+
+        self.bulk_count_label = ctk.CTkLabel(
+            bulk_inner,
+            text="Selected: 0",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color=self.COLORS["text_muted"],
+        )
+        self.bulk_count_label.pack(side="left")
+
+        self.bulk_select_all_btn = ctk.CTkButton(
+            bulk_inner,
+            text="Select all",
+            width=80,
+            height=28,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            fg_color=self.COLORS["surface"],
+            hover_color=self.COLORS["border"],
+            text_color=self.COLORS["text_secondary"],
+            border_width=1,
+            border_color=self.COLORS["border"],
+            command=self._on_bulk_select_all,
+        )
+        self.bulk_select_all_btn.pack(side="right")
+
+        self.bulk_clear_btn = ctk.CTkButton(
+            bulk_inner,
+            text="Clear",
+            width=60,
+            height=28,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            fg_color=self.COLORS["surface"],
+            hover_color=self.COLORS["border"],
+            text_color=self.COLORS["text_secondary"],
+            border_width=1,
+            border_color=self.COLORS["border"],
+            command=self._on_bulk_clear,
+        )
+        self.bulk_clear_btn.pack(side="right", padx=(0, 6))
+
+        self.bulk_export_btn = ctk.CTkButton(
+            bulk_inner,
+            text="Export",
+            width=70,
+            height=28,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            fg_color=self.COLORS["surface"],
+            hover_color=self.COLORS["border"],
+            text_color=self.COLORS["text_secondary"],
+            border_width=1,
+            border_color=self.COLORS["border"],
+            state="disabled",
+            command=self._on_bulk_export,
+        )
+        self.bulk_export_btn.pack(side="right", padx=(0, 6))
+
+        self.bulk_tag_btn = ctk.CTkButton(
+            bulk_inner,
+            text="Tags",
+            width=60,
+            height=28,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            fg_color=self.COLORS["surface"],
+            hover_color=self.COLORS["border"],
+            text_color=self.COLORS["text_secondary"],
+            border_width=1,
+            border_color=self.COLORS["border"],
+            state="disabled",
+            command=self._show_bulk_tag_menu,
+        )
+        self.bulk_tag_btn.pack(side="right", padx=(0, 6))
+
+        self.bulk_delete_btn = ctk.CTkButton(
+            bulk_inner,
+            text="Delete",
+            width=70,
+            height=28,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
+            fg_color="transparent",
+            hover_color="#FEE2E2",
+            text_color=self.COLORS["danger"],
+            border_width=1,
+            border_color=self.COLORS["border"],
+            state="disabled",
+            command=self._on_bulk_delete,
+        )
+        self.bulk_delete_btn.pack(side="right", padx=(0, 6))
+
+        if self.multi_select_mode:
+            self.bulk_frame.grid()
+            self.select_mode_btn.configure(text="Done")
+            self.select_mode_btn.configure(
+                fg_color=self.COLORS["accent_glow"],
+                text_color=self.COLORS["accent"],
+            )
+            self.prompt_list.set_multi_select_mode(True)
+        else:
+        self.bulk_frame.grid_remove()
+
+        self.bulk_tag_menu = None
+
+        # Row 8: Footer actions
         footer = ctk.CTkFrame(
             sidebar, 
             fg_color=self.COLORS["sidebar_bg"],
             corner_radius=0,
             height=56,
         )
-        footer.grid(row=7, column=0, sticky="ew")
+        footer.grid(row=8, column=0, sticky="ew")
         footer.grid_propagate(False)
 
         # Top border for footer
@@ -534,6 +689,9 @@ class PromptLibraryApp(ctk.CTk):
             on_save=self._on_save,
             on_delete=self._on_delete,
             on_copy=self._on_copy,
+            on_toggle_pin=self._on_prompt_list_toggle_pin,
+            on_show_history=self._on_show_history,
+            on_version_bump=self._on_version_bump,
             on_toast=self._show_toast,
             on_change=self._on_editor_change,
             colors=self.COLORS,
@@ -548,11 +706,31 @@ class PromptLibraryApp(ctk.CTk):
         self.bind_all("<Control-h>", lambda e: self._on_ctrl_h(e))
         self.bind_all("<Delete>", lambda e: self._on_shortcut_delete(e))
         self.bind_all("<Control-d>", lambda e: self._on_duplicate_prompt())
+        self.bind_all("<Control-p>", lambda e: self._on_command_palette())
         self.bind_all("<Escape>", lambda e: self._on_escape())
 
     def _focus_search(self):
         self.search_entry.focus_set()
         self.search_entry.select_range(0, "end")
+
+    def _toggle_multi_select(self):
+        self.multi_select_mode = not self.multi_select_mode
+        self.prompt_list.set_multi_select_mode(self.multi_select_mode)
+        if self.multi_select_mode:
+            self.select_mode_btn.configure(text="Done")
+            self.bulk_frame.grid()
+            self.select_mode_btn.configure(
+                fg_color=self.COLORS["accent_glow"],
+                text_color=self.COLORS["accent"],
+            )
+        else:
+            self.select_mode_btn.configure(text="Select")
+            self.bulk_frame.grid_remove()
+            self.select_mode_btn.configure(
+                fg_color=self.COLORS["surface"],
+                text_color=self.COLORS["text_secondary"],
+            )
+        self._on_selection_change(self.prompt_list.get_selected_prompts())
 
     def _on_ctrl_f(self, event=None):
         widget = self.focus_get()
@@ -568,6 +746,17 @@ class PromptLibraryApp(ctk.CTk):
             self.editor.open_replace_dialog()
             return "break"
         return "break"
+
+    def _on_command_palette(self):
+        if self._command_palette and self._command_palette.winfo_exists():
+            self._command_palette.focus_set()
+            return
+        self._command_palette = CommandPaletteDialog(
+            self,
+            prompts=self.prompts,
+            colors=self.COLORS,
+            on_select=self._on_prompt_select,
+        )
 
     def _toggle_theme(self):
         self.theme = "dark" if self.theme_var.get() else "light"
@@ -631,7 +820,7 @@ class PromptLibraryApp(ctk.CTk):
             state["draft"] = {
                 "name": self.editor.name_entry.get().strip(),
                 "category": self.editor.category_var.get(),
-                "tags": self.editor.tags_entry.get(),
+                "tags": self.editor.get_tags(),
                 "content": self.editor._get_current_content(),
                 "sensitive": bool(self.editor.sensitive_var.get()),
             }
@@ -659,8 +848,10 @@ class PromptLibraryApp(ctk.CTk):
                 self.editor.name_entry.delete(0, "end")
                 self.editor.name_entry.insert(0, draft["name"])
                 self.editor.category_var.set(draft["category"])
-                self.editor.tags_entry.delete(0, "end")
-                self.editor.tags_entry.insert(0, draft["tags"])
+                tags = draft.get("tags", [])
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+                self.editor.set_tags(list(tags))
                 self.editor.sensitive_var.set(draft["sensitive"])
                 self.editor._set_current_content(draft["content"])
             self.editor.update_save_state(state.get("has_unsaved_changes", False))
@@ -680,6 +871,9 @@ class PromptLibraryApp(ctk.CTk):
         widget = self.focus_get()
         if widget is not None and widget.winfo_toplevel() is not self:
             return
+        if self.multi_select_mode:
+            self._toggle_multi_select()
+            return
         if self.search_entry_var.get():
             self._clear_search()
             return
@@ -692,6 +886,8 @@ class PromptLibraryApp(ctk.CTk):
         self.prompt_list.set_prompts(self.prompts)
         self._update_count()
         self._update_filter_counts()
+        if self.multi_select_mode:
+            self._on_selection_change(self.prompt_list.get_selected_prompts())
         if self.storage.consume_restore_flag():
             self._show_toast("Library restored from backup")
 
@@ -761,10 +957,15 @@ class PromptLibraryApp(ctk.CTk):
 
         # Apply filter using the mapped category value
         cat_value = self.filter_map.get(display_name)
-        if cat_value is None:
+        if cat_value == "__pinned__":
+            self.prompt_list.set_pinned_only(True)
             self.prompt_list.set_category_filter(None)
         else:
-            self.prompt_list.set_category_filter(Category(cat_value))
+            self.prompt_list.set_pinned_only(False)
+            if cat_value is None:
+                self.prompt_list.set_category_filter(None)
+            else:
+                self.prompt_list.set_category_filter(Category(cat_value))
         self._update_count()
         self._update_filter_counts()
 
@@ -785,6 +986,8 @@ class PromptLibraryApp(ctk.CTk):
         for prompt in self.prompts:
             if not matches_search(prompt):
                 continue
+            if prompt.pinned:
+                counts["Pinned"] += 1
             counts["All"] += 1
             if prompt.category.value == "Persona":
                 counts["Persona"] += 1
@@ -829,12 +1032,7 @@ class PromptLibraryApp(ctk.CTk):
 
     def _on_save(self, prompt: Prompt):
         """Save prompt."""
-        self.storage.update_prompt(prompt)
-        self.has_unsaved_changes = False
-        self._refresh_list()
-        self.editor.set_prompt(prompt)
-        self.editor.update_save_state(False)
-        self._show_toast("Changes saved")
+        self._save_prompt(prompt, toast_message="Changes saved")
 
     def _on_delete(self, prompt_id: str):
         """Delete prompt."""
@@ -864,20 +1062,8 @@ class PromptLibraryApp(ctk.CTk):
         if not new_name or new_name == prompt.name:
             return
 
-        if self.current_prompt and prompt.id == self.current_prompt.id and self.has_unsaved_changes:
-            action = self._confirm_unsaved_changes()
-            if action == "cancel":
-                return
-            if action == "save":
-                self.editor.save_current_prompt()
-            elif action == "discard":
-                current_prompts = self.storage.load_prompts()
-                stored = next((p for p in current_prompts if p.id == prompt.id), None)
-                if stored:
-                    self.current_prompt = stored
-                    self.editor.set_prompt(stored)
-                self.has_unsaved_changes = False
-                self.editor.update_save_state(False)
+        if not self._resolve_unsaved_changes(prompt.id):
+            return
 
         prompt.name = new_name
         self.storage.update_prompt(prompt)
@@ -889,6 +1075,241 @@ class PromptLibraryApp(ctk.CTk):
             self.editor.update_save_state(False)
         self._refresh_list()
         self._show_toast("Prompt renamed")
+
+    def _on_selection_change(self, selected: list[Prompt]):
+        count = len(selected)
+        if self.bulk_count_label:
+            self.bulk_count_label.configure(text=f"Selected: {count}")
+        has_selected = count > 0
+        if self.bulk_delete_btn:
+            state = "normal" if has_selected else "disabled"
+            self.bulk_delete_btn.configure(state=state)
+        if self.bulk_export_btn:
+            state = "normal" if has_selected else "disabled"
+            self.bulk_export_btn.configure(state=state)
+        if self.bulk_tag_btn:
+            state = "normal" if has_selected else "disabled"
+            self.bulk_tag_btn.configure(state=state)
+
+    def _on_bulk_select_all(self):
+        if not self.multi_select_mode:
+            return
+        self.prompt_list.select_all()
+
+    def _on_bulk_clear(self):
+        if not self.multi_select_mode:
+            return
+        self.prompt_list.clear_selection()
+
+    def _on_bulk_export(self):
+        if not self.multi_select_mode:
+            return
+        selected = self.prompt_list.get_selected_prompts()
+        if not selected:
+            return
+        if self.current_prompt and self.current_prompt.id in {p.id for p in selected}:
+            if not self._resolve_unsaved_changes(self.current_prompt.id):
+                return
+        filepath = filedialog.asksaveasfilename(
+            title="Export Selected Prompts",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json")],
+            initialfile="prompts_selected.json",
+        )
+        if filepath:
+            self.storage.export_prompts_to_file(selected, filepath)
+            self._show_toast(f"Exported {len(selected)} prompts")
+
+    def _on_bulk_delete(self):
+        if not self.multi_select_mode:
+            return
+        selected = self.prompt_list.get_selected_prompts()
+        if not selected:
+            return
+        if self.current_prompt and self.current_prompt.id in {p.id for p in selected}:
+            if not self._resolve_unsaved_changes(self.current_prompt.id):
+                return
+        dialog = ConfirmDialog(
+            self,
+            colors=self.COLORS,
+            title="Delete prompts",
+            message=f"Delete {len(selected)} selected prompts? This cannot be undone.",
+            confirm_text="Delete",
+            cancel_text="Cancel",
+        )
+        self.wait_window(dialog)
+        if dialog.result != "confirm":
+            return
+        deleted = self.storage.delete_prompts([p.id for p in selected])
+        if self.current_prompt and self.current_prompt.id in {p.id for p in selected}:
+            self.editor.clear()
+            self.current_prompt = None
+        self.prompt_list.clear_selection()
+        self._refresh_list()
+        self._show_toast(f"Deleted {deleted} prompts")
+
+    def _show_bulk_tag_menu(self):
+        if not self.multi_select_mode:
+            return
+        if self.bulk_tag_menu is None:
+            import tkinter as tk
+
+            menu = tk.Menu(self, tearoff=0)
+            menu.add_command(label="Add tag", command=self._on_bulk_add_tag)
+            menu.add_command(label="Remove tag", command=self._on_bulk_remove_tag)
+            self.bulk_tag_menu = menu
+        x = self.bulk_tag_btn.winfo_rootx()
+        y = self.bulk_tag_btn.winfo_rooty() + self.bulk_tag_btn.winfo_height()
+        self.bulk_tag_menu.tk_popup(x, y)
+
+    def _on_bulk_add_tag(self):
+        self._bulk_tag_action("add")
+
+    def _on_bulk_remove_tag(self):
+        self._bulk_tag_action("remove")
+
+    def _bulk_tag_action(self, mode: str):
+        if not self.multi_select_mode:
+            return
+        selected = self.prompt_list.get_selected_prompts()
+        if not selected:
+            return
+        if self.current_prompt and self.current_prompt.id in {p.id for p in selected}:
+            if not self._resolve_unsaved_changes(self.current_prompt.id):
+                return
+
+        title = "Add tag to prompts" if mode == "add" else "Remove tag from prompts"
+        confirm = "Add" if mode == "add" else "Remove"
+        dialog = TagInputDialog(self, colors=self.COLORS, title=title, confirm_text=confirm)
+        self.wait_window(dialog)
+        tag = dialog.result
+        if not tag:
+            return
+
+        for prompt in selected:
+            tags = list(prompt.tags)
+            if mode == "add":
+                if not any(t.lower() == tag.lower() for t in tags):
+                    tags.append(tag)
+            else:
+                tags = [t for t in tags if t.lower() != tag.lower()]
+            prompt.tags = tags
+            self.storage.update_prompt(prompt)
+            if self.current_prompt and prompt.id == self.current_prompt.id:
+                self.current_prompt.tags = tags
+
+        self._refresh_list()
+        action_label = "Added" if mode == "add" else "Removed"
+        self._show_toast(f"{action_label} tag '{tag}' on {len(selected)} prompts")
+
+    def _resolve_unsaved_changes(self, prompt_id: str) -> bool:
+        if not self.has_unsaved_changes:
+            return True
+        if not self.current_prompt or self.current_prompt.id != prompt_id:
+            return True
+        action = self._confirm_unsaved_changes()
+        if action == "cancel":
+            return False
+        if action == "save":
+            self.editor.save_current_prompt()
+            return True
+        if action == "discard":
+            current_prompts = self.storage.load_prompts()
+            stored = next((p for p in current_prompts if p.id == prompt_id), None)
+            if stored:
+                self.current_prompt = stored
+                self.editor.set_prompt(stored)
+            self.has_unsaved_changes = False
+            self.editor.update_save_state(False)
+            return True
+        return True
+
+    def _on_prompt_list_toggle_pin(self, prompt: Prompt):
+        """Toggle pinned state from list."""
+        prompt.pinned = not bool(getattr(prompt, "pinned", False))
+        self._save_prompt(prompt, toast_message="Pinned" if prompt.pinned else "Unpinned")
+
+    def _on_show_history(self, prompt: Prompt):
+        """Open version history for a prompt."""
+        if not self._resolve_unsaved_changes(prompt.id):
+            return
+
+        PromptHistoryDialog(
+            self,
+            prompt=prompt,
+            colors=self.COLORS,
+            on_restore=lambda v: self._restore_version(prompt, v),
+        )
+
+    def _restore_version(self, prompt: Prompt, version: dict):
+        """Restore a prior version of a prompt."""
+        dialog = ConfirmDialog(
+            self,
+            colors=self.COLORS,
+            title="Restore version",
+            message="Replace the current prompt with this version?",
+            confirm_text="Restore",
+            cancel_text="Cancel",
+        )
+        self.wait_window(dialog)
+        if dialog.result != "confirm":
+            return
+
+        prompt.name = version.get("name", prompt.name)
+        prompt.content = version.get("content", prompt.content)
+        category_value = version.get("category", prompt.category.value)
+        try:
+            prompt.category = Category(category_value)
+        except Exception:
+            prompt.category = Category.OTHER
+        prompt.tags = list(version.get("tags", prompt.tags) or [])
+        prompt.sensitive = bool(version.get("sensitive", prompt.sensitive))
+        prompt.pinned = bool(version.get("pinned", prompt.pinned))
+        self._save_prompt(prompt, toast_message="Version restored")
+
+    def _on_version_bump(self, prompt: Prompt):
+        """Increment version suffix on prompt name and save."""
+        name = self.editor.name_entry.get().strip()
+        new_name, version_num = self._next_version_name(name)
+        self.editor.name_entry.delete(0, "end")
+        self.editor.name_entry.insert(0, new_name)
+
+        prompt.name = new_name
+        prompt.category = Category(self.editor.category_var.get())
+        prompt.tags = self.editor.get_tags()
+        prompt.content = self.editor._get_current_content()
+        prompt.sensitive = bool(self.editor.sensitive_var.get())
+        prompt.pinned = bool(prompt.pinned)
+
+        self._save_prompt(prompt, toast_message=f"Version bumped to v{version_num}")
+
+    def _next_version_name(self, name: str) -> tuple[str, int]:
+        match = re.search(r"(?:\s+v)(\d+)$", name, re.IGNORECASE)
+        if match:
+            base = name[: match.start()].strip()
+            try:
+                version = int(match.group(1)) + 1
+            except ValueError:
+                version = 1
+        else:
+            base = name.strip()
+            version = 1
+
+        if not base:
+            base = "Prompt"
+
+        return f"{base} v{version}".strip(), version
+
+    def _save_prompt(self, prompt: Prompt, toast_message: Optional[str] = "Changes saved"):
+        """Persist prompt and refresh UI."""
+        self.storage.update_prompt(prompt)
+        self.current_prompt = prompt
+        self.has_unsaved_changes = False
+        self._refresh_list()
+        self.editor.set_prompt(prompt)
+        self.editor.update_save_state(False)
+        if toast_message:
+            self._show_toast(toast_message)
 
     def _on_editor_change(self):
         """Handle editor content change."""
@@ -929,7 +1350,7 @@ class PromptLibraryApp(ctk.CTk):
 
         name = self.editor.name_entry.get().strip() or self.current_prompt.name
         content = self.editor.content_text.get("1.0", "end-1c")
-        tags = [t.strip() for t in self.editor.tags_entry.get().split(",") if t.strip()]
+        tags = self.editor.get_tags()
         category = Category(self.editor.category_var.get())
 
         new_prompt = Prompt(

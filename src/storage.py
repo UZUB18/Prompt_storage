@@ -13,6 +13,7 @@ class Storage:
     """Handles persistence of prompts to JSON file."""
 
     BACKUP_COUNT = 5
+    HISTORY_LIMIT = 10
 
     def __init__(self, data_dir: str = None):
         """Initialize storage with optional custom data directory."""
@@ -143,6 +144,19 @@ class Storage:
         if "sensitive" in item and not isinstance(item.get("sensitive"), bool):
             raise ValueError(f"Item {index} has invalid 'sensitive' (boolean expected).")
 
+        if "pinned" in item and not isinstance(item.get("pinned"), bool):
+            raise ValueError(f"Item {index} has invalid 'pinned' (boolean expected).")
+
+        if "history" in item:
+            history = item.get("history")
+            if not isinstance(history, list):
+                raise ValueError(f"Item {index} has invalid 'history' (list expected).")
+            for h_idx, entry in enumerate(history, start=1):
+                if not isinstance(entry, dict):
+                    raise ValueError(
+                        f"Item {index} has invalid 'history' entry {h_idx} (object expected)."
+                    )
+
         for field_name in ("id", "created_at", "updated_at"):
             if field_name in item and not isinstance(item.get(field_name), str):
                 raise ValueError(f"Item {index} has invalid '{field_name}' (string expected).")
@@ -218,11 +232,42 @@ class Storage:
         prompts = self.load_prompts()
         for i, p in enumerate(prompts):
             if p.id == prompt.id:
+                history = p.history if isinstance(p.history, list) else []
+                if self._should_add_version(p, prompt):
+                    history.insert(0, self._snapshot_prompt(p))
+                    history = history[: self.HISTORY_LIMIT]
+                prompt.history = history
                 prompt.update()
                 prompts[i] = prompt
                 self.save_prompts(prompts)
                 return True
         return False
+
+    def _should_add_version(self, existing: Prompt, updated: Prompt) -> bool:
+        if existing.name != updated.name:
+            return True
+        if existing.content != updated.content:
+            return True
+        if existing.category != updated.category:
+            return True
+        if existing.tags != updated.tags:
+            return True
+        if existing.sensitive != updated.sensitive:
+            return True
+        if existing.pinned != updated.pinned:
+            return True
+        return False
+
+    def _snapshot_prompt(self, prompt: Prompt) -> dict:
+        return {
+            "name": prompt.name,
+            "content": prompt.content,
+            "category": prompt.category.value,
+            "tags": list(prompt.tags),
+            "sensitive": bool(prompt.sensitive),
+            "pinned": bool(prompt.pinned),
+            "saved_at": prompt.updated_at,
+        }
 
     def delete_prompt(self, prompt_id: str) -> bool:
         """Delete a prompt by ID."""
@@ -234,9 +279,25 @@ class Storage:
             return True
         return False
 
+    def delete_prompts(self, prompt_ids: List[str]) -> int:
+        """Delete multiple prompts by ID. Returns count deleted."""
+        if not prompt_ids:
+            return 0
+        prompts = self.load_prompts()
+        id_set = set(prompt_ids)
+        remaining = [p for p in prompts if p.id not in id_set]
+        deleted = len(prompts) - len(remaining)
+        if deleted:
+            self.save_prompts(remaining)
+        return deleted
+
     def export_to_file(self, filepath: str):
         """Export all prompts to a JSON file."""
         prompts = self.load_prompts()
+        self.export_prompts_to_file(prompts, filepath)
+
+    def export_prompts_to_file(self, prompts: List[Prompt], filepath: str):
+        """Export provided prompts to a JSON file."""
         data = [p.to_dict() for p in prompts]
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)

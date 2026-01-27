@@ -16,6 +16,10 @@ class PromptListItem(ctk.CTkFrame):
         prompt: Prompt,
         on_select: Callable[[Prompt], None],
         on_context: Callable[[Prompt, object], None],
+        on_toggle_pin: Callable[[Prompt], None],
+        on_toggle_select: Callable[[Prompt, object | None], None],
+        show_checkbox: bool,
+        selected: bool,
         colors: Dict[str, str],
         **kwargs
     ):
@@ -23,8 +27,11 @@ class PromptListItem(ctk.CTkFrame):
         self.prompt = prompt
         self.on_select = on_select
         self.on_context = on_context
+        self.on_toggle_pin = on_toggle_pin
+        self.on_toggle_select = on_toggle_select
+        self.multi_select_mode = show_checkbox
         self.colors = colors
-        self.selected = False
+        self.selected = selected
 
         self.configure(
             fg_color="transparent",
@@ -45,15 +52,51 @@ class PromptListItem(ctk.CTkFrame):
         )
         self.accent_bar.place(x=0, rely=0.2, relheight=0.6)
 
+        header_row = ctk.CTkFrame(container, fg_color="transparent")
+        header_row.pack(fill="x", pady=(0, 8))
+
+        self.select_var = ctk.BooleanVar(value=selected)
+        self.select_checkbox = ctk.CTkCheckBox(
+            header_row,
+            text="",
+            width=18,
+            checkbox_width=18,
+            checkbox_height=18,
+            corner_radius=4,
+            fg_color=colors["accent"],
+            border_color=colors["border"],
+            hover_color=colors["accent_hover"],
+            command=self._on_checkbox,
+        )
+        if show_checkbox:
+            self.select_checkbox.pack(side="left", padx=(0, 8))
+
         # Name (heading style)
         self.name_label = ctk.CTkLabel(
-            container,
+            header_row,
             text=prompt.name,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             text_color=colors["text_primary"],
             anchor="w",
         )
-        self.name_label.pack(fill="x", pady=(0, 8))
+        self.name_label.pack(side="left", fill="x", expand=True)
+
+        self.pin_btn = ctk.CTkButton(
+            header_row,
+            text="★" if prompt.pinned else "☆",
+            width=26,
+            height=26,
+            corner_radius=13,
+            fg_color="transparent",
+            hover_color=colors["card"],
+            text_color=colors["accent"] if prompt.pinned else colors["text_muted"],
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            border_width=0,
+            command=self._on_pin,
+        )
+        self.pin_btn.pack(side="right")
+        self.pin_btn.bind("<Enter>", self._on_enter)
+        self.pin_btn.bind("<Leave>", self._on_leave)
 
         # Metadata + preview line (faint)
         meta_text = self._build_metadata(prompt)
@@ -78,6 +121,7 @@ class PromptListItem(ctk.CTkFrame):
         widgets = [
             self,
             container,
+            header_row,
             self.name_label,
             self.meta_label,
         ]
@@ -139,6 +183,8 @@ class PromptListItem(ctk.CTkFrame):
 
     def _build_metadata(self, prompt: Prompt) -> str:
         parts = []
+        if prompt.pinned:
+            parts.append("📌 Pinned")
         if prompt.sensitive:
             parts.append("🔒 Sensitive")
         parts.append(f"📁 {prompt.category.value}")
@@ -165,13 +211,34 @@ class PromptListItem(ctk.CTkFrame):
             self.configure(fg_color="transparent")
 
     def _on_click(self, event=None):
+        if event is not None and event.widget in (self.select_checkbox, self.pin_btn):
+            return
+        if self.multi_select_mode:
+            self.on_toggle_select(self.prompt, event)
+            return
         self.on_select(self.prompt)
 
     def _on_right_click(self, event=None):
         self.on_context(self.prompt, event)
 
+    def _on_pin(self):
+        self.on_toggle_pin(self.prompt)
+
+    def _on_checkbox(self):
+        self.on_toggle_select(self.prompt, None)
+        self.set_selected(self.select_var.get())
+
+    def set_multiselect(self, enabled: bool, selected: bool):
+        self.multi_select_mode = enabled
+        if enabled:
+            self.select_var.set(selected)
+            self.select_checkbox.pack(side="left", padx=(0, 8))
+        else:
+            self.select_checkbox.pack_forget()
+
     def set_selected(self, selected: bool):
         self.selected = selected
+        self.select_var.set(selected)
         if selected:
             self.configure(
                 fg_color=self.colors["accent_glow"],
@@ -196,6 +263,8 @@ class PromptList(ctk.CTkScrollableFrame):
         on_select: Callable[[Prompt], None],
         on_copy: Callable[[Prompt], None],
         on_rename: Callable[[Prompt], None],
+        on_toggle_pin: Callable[[Prompt], None],
+        on_selection_change: Callable[[List[Prompt]], None],
         on_clear_search: Callable[[], None],
         on_new_prompt: Callable[[], None],
         colors: Dict[str, str],
@@ -211,6 +280,8 @@ class PromptList(ctk.CTkScrollableFrame):
         self.on_select = on_select
         self.on_copy = on_copy
         self.on_rename = on_rename
+        self.on_toggle_pin = on_toggle_pin
+        self.on_selection_change = on_selection_change
         self.on_clear_search = on_clear_search
         self.on_new_prompt = on_new_prompt
         self.colors = colors
@@ -220,10 +291,16 @@ class PromptList(ctk.CTkScrollableFrame):
         self.selected_prompt: Optional[Prompt] = None
         self.search_term = ""
         self.category_filter: Optional[Category] = None
+        self.pinned_only = False
+        self.multi_select_mode = False
+        self.selected_ids: set[str] = set()
+        self._last_selected_index: Optional[int] = None
         self.sort_option = "Recently updated"
         self.context_prompt: Optional[Prompt] = None
 
         self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Pin", command=self._on_context_toggle_pin)
+        self._pin_menu_index = 0
         self.context_menu.add_command(label="Copy", command=self._on_context_copy)
         self.context_menu.add_command(label="Rename", command=self._on_context_rename)
 
@@ -269,6 +346,10 @@ class PromptList(ctk.CTkScrollableFrame):
     def set_prompts(self, prompts: List[Prompt]):
         """Set prompts and rebuild list."""
         self.prompts = prompts
+        if self.selected_ids:
+            available = {p.id for p in prompts}
+            self.selected_ids = {pid for pid in self.selected_ids if pid in available}
+            self.on_selection_change(self.get_selected_prompts())
         self._apply_filters()
 
     def set_search(self, term: str):
@@ -281,10 +362,50 @@ class PromptList(ctk.CTkScrollableFrame):
         self.category_filter = category
         self._apply_filters()
 
+    def set_pinned_only(self, value: bool):
+        """Set pinned-only filter."""
+        self.pinned_only = bool(value)
+        self._apply_filters()
+
     def set_sort(self, option: str):
         """Set sorting option."""
         self.sort_option = option
         self._apply_filters()
+
+    def set_multi_select_mode(self, enabled: bool):
+        self.multi_select_mode = bool(enabled)
+        if not self.multi_select_mode:
+            self.selected_ids.clear()
+            self.on_selection_change(self.get_selected_prompts())
+            self._last_selected_index = None
+        self._rebuild_list()
+
+    def toggle_selected(self, prompt: Prompt):
+        if prompt.id in self.selected_ids:
+            self.selected_ids.remove(prompt.id)
+        else:
+            self.selected_ids.add(prompt.id)
+        self.on_selection_change(self.get_selected_prompts())
+        self._sync_selection_ui()
+
+    def clear_selection(self):
+        if not self.selected_ids:
+            return
+        self.selected_ids.clear()
+        self.on_selection_change(self.get_selected_prompts())
+        self._last_selected_index = None
+        self._rebuild_list()
+
+    def select_all(self):
+        self.selected_ids = {p.id for p in self.prompts}
+        self.on_selection_change(self.get_selected_prompts())
+        self._rebuild_list()
+
+    def get_selected_prompts(self) -> List[Prompt]:
+        if not self.selected_ids:
+            return []
+        lookup = {p.id: p for p in self.prompts}
+        return [lookup[p_id] for p_id in self.selected_ids if p_id in lookup]
 
     def _apply_filters(self):
         """Apply search and category filters."""
@@ -301,6 +422,9 @@ class PromptList(ctk.CTkScrollableFrame):
         if self.category_filter:
             filtered = [p for p in filtered if p.category == self.category_filter]
 
+        if self.pinned_only:
+            filtered = [p for p in filtered if getattr(p, "pinned", False)]
+
         filtered = self._apply_sort(filtered)
         self.filtered_prompts = filtered
         self._rebuild_list()
@@ -311,7 +435,8 @@ class PromptList(ctk.CTkScrollableFrame):
             return prompts
 
         if self.sort_option == "Name A->Z":
-            return sorted(prompts, key=lambda p: p.name.lower())
+            sorted_prompts = sorted(prompts, key=lambda p: p.name.lower())
+            return self._pin_sort(sorted_prompts)
 
         def parse_time(value: str) -> datetime:
             try:
@@ -320,10 +445,19 @@ class PromptList(ctk.CTkScrollableFrame):
                 return datetime.min
 
         if self.sort_option == "Created":
-            return sorted(prompts, key=lambda p: parse_time(p.created_at), reverse=True)
+            sorted_prompts = sorted(prompts, key=lambda p: parse_time(p.created_at), reverse=True)
+            return self._pin_sort(sorted_prompts)
 
         # Default: Recently updated
-        return sorted(prompts, key=lambda p: parse_time(p.updated_at), reverse=True)
+        sorted_prompts = sorted(prompts, key=lambda p: parse_time(p.updated_at), reverse=True)
+        return self._pin_sort(sorted_prompts)
+
+    def _pin_sort(self, prompts: List[Prompt]) -> List[Prompt]:
+        if self.pinned_only:
+            return prompts
+        pinned = [p for p in prompts if getattr(p, "pinned", False)]
+        others = [p for p in prompts if not getattr(p, "pinned", False)]
+        return pinned + others
 
     def _rebuild_list(self):
         """Rebuild the list UI."""
@@ -344,16 +478,25 @@ class PromptList(ctk.CTkScrollableFrame):
                 prompt=prompt,
                 on_select=self._on_item_select,
                 on_context=self._show_context_menu,
+                on_toggle_pin=self._on_item_toggle_pin,
+                on_toggle_select=self._on_item_toggle_select,
+                show_checkbox=self.multi_select_mode,
+                selected=prompt.id in self.selected_ids,
                 colors=self.colors,
             )
             item.pack(fill="x", pady=2)
             self.items.append(item)
 
-            if self.selected_prompt and prompt.id == self.selected_prompt.id:
+            if self.multi_select_mode:
+                item.set_selected(prompt.id in self.selected_ids)
+            elif self.selected_prompt and prompt.id == self.selected_prompt.id:
                 item.set_selected(True)
 
     def _on_item_select(self, prompt: Prompt):
         """Handle item selection."""
+        if self.multi_select_mode:
+            self._on_item_toggle_select(prompt, None)
+            return
         self.selected_prompt = prompt
 
         for item in self.items:
@@ -364,6 +507,11 @@ class PromptList(ctk.CTkScrollableFrame):
     def _show_context_menu(self, prompt: Prompt, event):
         """Show context menu for a prompt."""
         self.context_prompt = prompt
+        label = "Unpin" if prompt.pinned else "Pin"
+        try:
+            self.context_menu.entryconfigure(self._pin_menu_index, label=label)
+        except Exception:
+            pass
         if event is not None:
             try:
                 self.context_menu.tk_popup(event.x_root, event.y_root)
@@ -378,9 +526,54 @@ class PromptList(ctk.CTkScrollableFrame):
         if self.context_prompt:
             self.on_rename(self.context_prompt)
 
+    def _on_context_toggle_pin(self):
+        if self.context_prompt:
+            self.on_toggle_pin(self.context_prompt)
+
+    def _on_item_toggle_pin(self, prompt: Prompt):
+        self.on_toggle_pin(prompt)
+
+    def _on_item_toggle_select(self, prompt: Prompt, event: object | None):
+        if not self.multi_select_mode:
+            return
+        shift = False
+        if event is not None:
+            try:
+                shift = bool(event.state & 0x0001)
+            except Exception:
+                shift = False
+
+        try:
+            current_index = next(
+                idx for idx, p in enumerate(self.filtered_prompts) if p.id == prompt.id
+            )
+        except StopIteration:
+            current_index = None
+
+        if shift and self._last_selected_index is not None and current_index is not None:
+            start = min(self._last_selected_index, current_index)
+            end = max(self._last_selected_index, current_index)
+            for p in self.filtered_prompts[start : end + 1]:
+                self.selected_ids.add(p.id)
+            self._last_selected_index = current_index
+        else:
+            if prompt.id in self.selected_ids:
+                self.selected_ids.remove(prompt.id)
+            else:
+                self.selected_ids.add(prompt.id)
+            if current_index is not None:
+                self._last_selected_index = current_index
+
+        self.on_selection_change(self.get_selected_prompts())
+        self._sync_selection_ui()
+
     def set_selected_prompt(self, prompt: Optional[Prompt]):
         """Force selection state in the list."""
         self.selected_prompt = prompt
         for item in self.items:
             item.set_selected(prompt is not None and item.prompt.id == prompt.id)
+
+    def _sync_selection_ui(self):
+        for item in self.items:
+            item.set_selected(item.prompt.id in self.selected_ids)
 
