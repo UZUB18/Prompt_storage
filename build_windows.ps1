@@ -37,9 +37,11 @@ $oneFlag = if ($Mode -eq "onefile") { "--onefile" } else { "" }
   --clean `
   --windowed `
   $oneFlag `
+  --paths "." `
   --name "PromptLibraryPro" `
   --icon "prompt_library.ico" `
   --add-data "prompt_library.ico;." `
+  --collect-submodules "src" `
   main.py
 
 Write-Host ""
