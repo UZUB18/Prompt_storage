@@ -41,6 +41,7 @@ $oneFlag = if ($Mode -eq "onefile") { "--onefile" } else { "" }
   --name "PromptLibraryPro" `
   --icon "prompt_library.ico" `
   --add-data "prompt_library.ico;." `
+  --add-data "src;src" `
   --collect-submodules "src" `
   main.py
 

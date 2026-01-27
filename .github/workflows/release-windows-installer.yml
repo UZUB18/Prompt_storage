@@ -31,7 +31,7 @@ jobs:
       - name: Build (PyInstaller onedir)
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --paths "." --name "PromptLibraryPro" --icon "prompt_library.ico" --add-data "prompt_library.ico;." --collect-submodules "src" main.py
+          python -m PyInstaller --noconfirm --clean --windowed --paths "." --name "PromptLibraryPro" --icon "prompt_library.ico" --add-data "prompt_library.ico;." --add-data "src;src" --collect-submodules "src" main.py
 
       - name: Install Inno Setup
         shell: pwsh
