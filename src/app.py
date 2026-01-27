@@ -610,7 +610,7 @@ class PromptLibraryApp(ctk.CTk):
             )
             self.prompt_list.set_multi_select_mode(True)
         else:
-        self.bulk_frame.grid_remove()
+            self.bulk_frame.grid_remove()
 
         self.bulk_tag_menu = None
 

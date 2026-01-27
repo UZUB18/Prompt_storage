@@ -29,12 +29,12 @@ Below is a purely additive / improvement-only backlog. Items are grouped by impa
 - **S** Add "Rename" from list context menu (no need to open editor first).
 - **S** Make filter chips include **Other** (currently hidden) and optionally "All categories" dropdown.
 - **S** Show counts per category (e.g., Persona (12)).
-- **M** Add multi-select + bulk actions (delete, export, tag).
-- **M** Add tag chips UI (clickable tags, quick add/remove, tag autocomplete from existing tags).
-- **M** Add favorites/pins (star a prompt; pin section at top).
-- **M** Add "history / versions" for a prompt (lightweight: keep last N revisions per prompt).
+- **M** Add multi-select + bulk actions (delete, export, tag). ✅
+- **M** Add tag chips UI (clickable tags, quick add/remove, tag autocomplete from existing tags). ✅
+- **M** Add favorites/pins (star a prompt; pin section at top). ✅
+- **M** Add "history / versions" for a prompt (lightweight: keep last N revisions per prompt). ✅
 - **M** Add "scratchpad" panel (temporary text you can copy into prompts).
-- **L** Add a command palette (Ctrl+P) to jump to prompts/actions quickly.
+- **L** Add a command palette (Ctrl+P) to jump to prompts/actions quickly. ✅
 
 ## Data integrity + reliability
 
