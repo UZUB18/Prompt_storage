@@ -76,6 +76,9 @@ class TagChipsInput(ctk.CTkFrame):
         self._on_change = on_change
         self._tags: List[str] = []
         self._chips: List[TagChip] = []
+        self._layout_running = False
+        self._layout_after_id = None
+        self._last_layout_width = -1
 
         self.grid_columnconfigure(0, weight=1)
 
@@ -97,11 +100,11 @@ class TagChipsInput(ctk.CTkFrame):
         self.entry.bind("<KeyRelease>", self._on_key_release)
         self.entry.bind("<BackSpace>", self._on_backspace)
 
-        self.inner.bind("<Configure>", lambda _e: self._layout())
-        self.bind("<Configure>", lambda _e: self._layout())
+        self.inner.bind("<Configure>", lambda _e: self._schedule_layout())
+        self.bind("<Configure>", lambda _e: self._schedule_layout())
         self.bind("<Button-1>", lambda _e: self.entry.focus_set())
 
-        self._layout()
+        self._layout(force=True)
 
     def get_tags(self) -> List[str]:
         return list(self._tags)
@@ -131,7 +134,7 @@ class TagChipsInput(ctk.CTkFrame):
         chip = TagChip(self.inner, clean, self._remove_tag, self._colors)
         self._tags.append(clean)
         self._chips.append(chip)
-        self._layout()
+        self._schedule_layout(force=True)
         if notify:
             self._emit_change()
 
@@ -141,7 +144,7 @@ class TagChipsInput(ctk.CTkFrame):
                 self._tags.pop(idx)
                 chip = self._chips.pop(idx)
                 chip.destroy()
-                self._layout()
+                self._schedule_layout(force=True)
                 self._emit_change()
                 break
 
@@ -150,7 +153,7 @@ class TagChipsInput(ctk.CTkFrame):
             chip.destroy()
         self._chips.clear()
         self._tags.clear()
-        self._layout()
+        self._schedule_layout(force=True)
 
     def _extract_tags(self, force: bool = False) -> List[str]:
         text = self.entry.get()
@@ -195,30 +198,54 @@ class TagChipsInput(ctk.CTkFrame):
             return "break"
         return None
 
-    def _layout(self):
-        widgets = self._chips + [self.entry]
-        for widget in widgets:
-            widget.grid_forget()
-
-        max_width = self.inner.winfo_width()
-        if max_width <= 1:
-            self.after(10, self._layout)
+    def _layout(self, force: bool = False):
+        if self._layout_running:
+            self._schedule_layout(force=force)
             return
+        self._layout_running = True
+        widgets = self._chips + [self.entry]
+        try:
+            max_width = self.inner.winfo_width()
+            if max_width <= 1:
+                self._schedule_layout(10, force=True)
+                return
+            if not force and max_width == self._last_layout_width:
+                return
+            self._last_layout_width = max_width
 
-        row = 0
-        col = 0
-        x = 0
-        pad_x = 6
-        pad_y = 6
-        available = max_width - pad_x
+            for widget in widgets:
+                widget.grid_forget()
 
-        for widget in widgets:
-            widget.update_idletasks()
-            width = widget.winfo_reqwidth()
-            if x + width > available and x > 0:
-                row += 1
-                col = 0
-                x = 0
-            widget.grid(row=row, column=col, padx=(0, pad_x), pady=(0, pad_y), sticky="w")
-            x += width + pad_x
-            col += 1
+            row = 0
+            col = 0
+            x = 0
+            pad_x = 6
+            pad_y = 6
+            available = max_width - pad_x
+
+            for widget in widgets:
+                widget.update_idletasks()
+                width = widget.winfo_reqwidth()
+                if x + width > available and x > 0:
+                    row += 1
+                    col = 0
+                    x = 0
+                widget.grid(row=row, column=col, padx=(0, pad_x), pady=(0, pad_y), sticky="w")
+                x += width + pad_x
+                col += 1
+        finally:
+            self._layout_running = False
+
+    def _schedule_layout(self, delay_ms: int = 0, force: bool = False):
+        if self._layout_after_id is not None:
+            try:
+                self.after_cancel(self._layout_after_id)
+            except Exception:
+                pass
+            self._layout_after_id = None
+
+        def run_layout():
+            self._layout_after_id = None
+            self._layout(force=force)
+
+        self._layout_after_id = self.after(delay_ms, run_layout)

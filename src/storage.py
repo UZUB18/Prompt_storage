@@ -23,6 +23,7 @@ class Storage:
             self.data_dir = Path(data_dir)
         
         self.prompts_file = self.data_dir / "prompts.json"
+        self.drafts_file = self.data_dir / "drafts.json"
         self._restored_from_backup = False
         self._ensure_data_dir()
 
@@ -63,6 +64,8 @@ class Storage:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         if not self.prompts_file.exists():
             self._save_raw([])
+        if not self.drafts_file.exists():
+            self._write_json_atomic(self.drafts_file, [])
 
     def _backup_path(self, index: int) -> Path:
         """Return the backup path for the given index."""
@@ -214,6 +217,42 @@ class Storage:
         """Load all prompts from storage."""
         data = self._load_raw()
         return [Prompt.from_dict(item) for item in data]
+
+    def _load_drafts_raw(self) -> List[dict]:
+        try:
+            data = self._read_json(self.drafts_file)
+            if isinstance(data, list):
+                return [item for item in data if isinstance(item, dict)]
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
+        return []
+
+    def load_drafts(self) -> dict[str, dict]:
+        drafts = self._load_drafts_raw()
+        result: dict[str, dict] = {}
+        for item in drafts:
+            prompt_id = item.get("prompt_id")
+            draft = item.get("draft")
+            if isinstance(prompt_id, str) and isinstance(draft, dict):
+                result[prompt_id] = draft
+        return result
+
+    def load_draft(self, prompt_id: str) -> dict | None:
+        drafts = self.load_drafts()
+        return drafts.get(prompt_id)
+
+    def save_draft(self, prompt_id: str, draft: dict):
+        drafts = self.load_drafts()
+        drafts[prompt_id] = dict(draft)
+        payload = [{"prompt_id": k, "draft": v} for k, v in drafts.items()]
+        self._write_json_atomic(self.drafts_file, payload)
+
+    def clear_draft(self, prompt_id: str):
+        drafts = self.load_drafts()
+        if prompt_id in drafts:
+            drafts.pop(prompt_id, None)
+            payload = [{"prompt_id": k, "draft": v} for k, v in drafts.items()]
+            self._write_json_atomic(self.drafts_file, payload)
 
     def save_prompts(self, prompts: List[Prompt]):
         """Save all prompts to storage."""

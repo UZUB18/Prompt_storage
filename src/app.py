@@ -17,6 +17,10 @@ from .config import (
     set_theme,
     get_ui_scale,
     set_ui_scale,
+    get_preview_split_enabled,
+    set_preview_split_enabled,
+    get_token_count_mode,
+    set_token_count_mode,
 )
 from .resources import resource_path
 from .components.prompt_list import PromptList
@@ -120,6 +124,10 @@ class PromptLibraryApp(ctk.CTk):
         self.filter_labels: dict[str, str] = {}
         self.filter_order: list[str] = []
         self._command_palette: Optional[CommandPaletteDialog] = None
+        self.preview_split_enabled = get_preview_split_enabled(False)
+        self.token_count_mode = get_token_count_mode("approx")
+        if self.token_count_mode not in ("approx", "exact"):
+            self.token_count_mode = "approx"
         self.multi_select_mode = False
         self.bulk_frame = None
         self.bulk_count_label = None
@@ -694,7 +702,11 @@ class PromptLibraryApp(ctk.CTk):
             on_version_bump=self._on_version_bump,
             on_toast=self._show_toast,
             on_change=self._on_editor_change,
+            on_autosave_draft=self._on_editor_autosave_draft,
+            on_preview_toggle=self._on_editor_preview_toggle,
             colors=self.COLORS,
+            preview_enabled=self.preview_split_enabled,
+            token_mode=self.token_count_mode,
         )
         self.editor.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
 
@@ -707,6 +719,9 @@ class PromptLibraryApp(ctk.CTk):
         self.bind_all("<Delete>", lambda e: self._on_shortcut_delete(e))
         self.bind_all("<Control-d>", lambda e: self._on_duplicate_prompt())
         self.bind_all("<Control-p>", lambda e: self._on_command_palette())
+        self.bind_all("<Control-i>", lambda e: self._on_shortcut_snippets())
+        self.bind_all("<Control-Shift-M>", lambda e: self._on_shortcut_toggle_preview())
+        self.bind_all("<Control-Shift-V>", lambda e: self._on_shortcut_fill_variables())
         self.bind_all("<Escape>", lambda e: self._on_escape())
 
     def _focus_search(self):
@@ -756,7 +771,53 @@ class PromptLibraryApp(ctk.CTk):
             prompts=self.prompts,
             colors=self.COLORS,
             on_select=self._on_prompt_select,
+            actions=self._get_palette_actions(),
+            on_action=self._run_palette_action,
         )
+
+    def _get_palette_actions(self) -> list[dict[str, str]]:
+        return [
+            {"id": "new_prompt", "label": "New prompt", "keywords": "create add", "shortcut": "Ctrl+N"},
+            {"id": "duplicate_prompt", "label": "Duplicate current", "keywords": "clone copy", "shortcut": "Ctrl+D"},
+            {"id": "focus_search", "label": "Focus search", "keywords": "find filter list", "shortcut": "Ctrl+F"},
+            {"id": "toggle_preview", "label": "Toggle preview split", "keywords": "markdown preview split", "shortcut": "Ctrl+Shift+M"},
+            {"id": "open_snippets", "label": "Insert snippet", "keywords": "snippet template quick insert", "shortcut": "Ctrl+I"},
+            {"id": "fill_variables", "label": "Fill variables", "keywords": "placeholder variable", "shortcut": "Ctrl+Shift+V"},
+            {"id": "toggle_token_mode", "label": "Toggle token mode", "keywords": "token count approx exact"},
+            {"id": "toggle_pin", "label": "Toggle pin", "keywords": "favorite star pinned"},
+        ]
+
+    def _run_palette_action(self, action_id: str):
+        if action_id == "new_prompt":
+            self._on_new_prompt()
+            return
+        if action_id == "duplicate_prompt":
+            self._on_duplicate_prompt()
+            return
+        if action_id == "focus_search":
+            self._focus_search()
+            return
+        if action_id == "toggle_preview":
+            self._toggle_preview()
+            return
+        if action_id == "open_snippets":
+            self.editor.open_snippet_picker()
+            return
+        if action_id == "fill_variables":
+            self.editor.fill_variables()
+            return
+        if action_id == "toggle_token_mode":
+            self._toggle_token_mode()
+            return
+        if action_id == "toggle_pin" and self.current_prompt:
+            self._on_prompt_list_toggle_pin(self.current_prompt)
+
+    def _toggle_token_mode(self):
+        self.token_count_mode = "exact" if self.token_count_mode == "approx" else "approx"
+        self.editor.token_mode = self.token_count_mode
+        self.editor._update_char_count()
+        set_token_count_mode(self.token_count_mode)
+        self._show_toast(f"Token mode: {self.token_count_mode}")
 
     def _toggle_theme(self):
         self.theme = "dark" if self.theme_var.get() else "light"
@@ -866,6 +927,27 @@ class PromptLibraryApp(ctk.CTk):
             return
         if self.current_prompt:
             self._on_delete(self.current_prompt.id)
+
+    def _on_shortcut_snippets(self):
+        if not self.current_prompt:
+            return
+        self.editor.open_snippet_picker()
+        return "break"
+
+    def _on_shortcut_fill_variables(self):
+        if not self.current_prompt:
+            return
+        self.editor.fill_variables()
+        return "break"
+
+    def _on_shortcut_toggle_preview(self):
+        self._toggle_preview()
+        return "break"
+
+    def _toggle_preview(self):
+        self.editor.toggle_preview()
+        self.preview_split_enabled = self.editor.preview_enabled
+        set_preview_split_enabled(self.preview_split_enabled)
 
     def _on_escape(self):
         widget = self.focus_get()
@@ -1017,6 +1099,11 @@ class PromptLibraryApp(ctk.CTk):
         self.current_prompt = prompt
         self.has_unsaved_changes = False
         self.editor.set_prompt(prompt)
+        draft = self.storage.load_draft(prompt.id)
+        if isinstance(draft, dict):
+            self.editor.set_draft(draft)
+            self.has_unsaved_changes = True
+            self.editor.update_save_state(True)
 
     def _on_new_prompt(self):
         """Open new prompt dialog."""
@@ -1027,6 +1114,8 @@ class PromptLibraryApp(ctk.CTk):
         """Create new prompt."""
         self.storage.add_prompt(prompt)
         self._refresh_list()
+        self.current_prompt = prompt
+        self.has_unsaved_changes = False
         self.editor.set_prompt(prompt)
         self._show_toast("Prompt created")
 
@@ -1037,6 +1126,7 @@ class PromptLibraryApp(ctk.CTk):
     def _on_delete(self, prompt_id: str):
         """Delete prompt."""
         self.storage.delete_prompt(prompt_id)
+        self.storage.clear_draft(prompt_id)
         self.editor.clear()
         self._refresh_list()
         self._show_toast("Prompt deleted")
@@ -1303,6 +1393,7 @@ class PromptLibraryApp(ctk.CTk):
     def _save_prompt(self, prompt: Prompt, toast_message: Optional[str] = "Changes saved"):
         """Persist prompt and refresh UI."""
         self.storage.update_prompt(prompt)
+        self.storage.clear_draft(prompt.id)
         self.current_prompt = prompt
         self.has_unsaved_changes = False
         self._refresh_list()
@@ -1315,6 +1406,15 @@ class PromptLibraryApp(ctk.CTk):
         """Handle editor content change."""
         self.has_unsaved_changes = True
         self.editor.update_save_state(True)
+
+    def _on_editor_autosave_draft(self, prompt_id: str, draft: dict):
+        if not prompt_id:
+            return
+        self.storage.save_draft(prompt_id, draft)
+
+    def _on_editor_preview_toggle(self, enabled: bool):
+        self.preview_split_enabled = bool(enabled)
+        set_preview_split_enabled(self.preview_split_enabled)
 
     def _on_export(self):
         """Export prompts."""
@@ -1450,5 +1550,3 @@ def run():
     """Run the application."""
     app = PromptLibraryApp()
     app.mainloop()
-
-

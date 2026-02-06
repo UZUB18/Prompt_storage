@@ -114,3 +114,31 @@ def set_ui_scale(value: str):
     config = load_config()
     config["ui_scale"] = value
     save_config(config)
+
+
+def get_preview_split_enabled(default: bool = False) -> bool:
+    config = load_config()
+    value = config.get("preview_split_enabled")
+    if isinstance(value, bool):
+        return value
+    return default
+
+
+def set_preview_split_enabled(value: bool):
+    config = load_config()
+    config["preview_split_enabled"] = bool(value)
+    save_config(config)
+
+
+def get_token_count_mode(default: str = "approx") -> str:
+    config = load_config()
+    value = config.get("token_count_mode")
+    if isinstance(value, str) and value.strip():
+        return value.strip().lower()
+    return default
+
+
+def set_token_count_mode(mode: str):
+    config = load_config()
+    config["token_count_mode"] = mode.strip().lower() if isinstance(mode, str) else "approx"
+    save_config(config)

@@ -1,6 +1,6 @@
-"""Dialog components - Apple 2026 Edition."""
+﻿"""Dialog components - Apple 2026 Edition."""
 import customtkinter as ctk
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from datetime import datetime
 
 from ..models import Prompt, Category
@@ -122,7 +122,7 @@ class NewPromptDialog(ctk.CTkToplevel):
         self.tags_input = TagChipsInput(
             content,
             colors=colors,
-            placeholder_text="Add tags (comma or Enter)…",
+            placeholder_text="Add tags (comma or Enter)â€¦",
         )
         self.tags_input.pack(fill="x", pady=(0, 20))
 
@@ -346,6 +346,188 @@ class VariableInputDialog(ctk.CTkToplevel):
             values[var] = val
             
         self.on_submit(values)
+        self.destroy()
+
+
+class SnippetPickerDialog(ctk.CTkToplevel):
+    """Dialog for searching and inserting snippets."""
+
+    def __init__(
+        self,
+        master,
+        snippets: List[dict],
+        colors: Dict[str, str],
+        on_insert: Callable[[str], None],
+        **kwargs,
+    ):
+        super().__init__(master, **kwargs)
+        self.colors = colors
+        self.on_insert = on_insert
+        self.all_snippets = snippets
+        self.filtered: List[dict] = []
+        self.result_buttons: List[ctk.CTkButton] = []
+        self.active_index = 0
+
+        self.title("Insert Snippet")
+        self.geometry("620x520")
+        self.resizable(False, False)
+        self.configure(fg_color=colors["bg"])
+
+        self.transient(master)
+        self.grab_set()
+
+        self.update_idletasks()
+        width = 620
+        height = 520
+        x = (self.winfo_screenwidth() - width) // 2
+        y = (self.winfo_screenheight() - height) // 2
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+        card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
+        card.pack(fill="both", expand=True, padx=20, pady=20)
+
+        content = ctk.CTkFrame(card, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=24, pady=24)
+
+        ctk.CTkLabel(
+            content,
+            text="Snippets",
+            font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+            text_color=colors["text_primary"],
+        ).pack(anchor="w", pady=(0, 8))
+
+        ctk.CTkLabel(
+            content,
+            text="Search and press Enter to insert at cursor.",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color=colors["text_secondary"],
+        ).pack(anchor="w", pady=(0, 10))
+
+        self.search_entry = ctk.CTkEntry(
+            content,
+            height=36,
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            fg_color=colors["surface"],
+            border_color=colors["border"],
+            border_width=1,
+            corner_radius=10,
+            text_color=colors["text_primary"],
+            placeholder_text="Search snippets by name/category/content...",
+        )
+        self.search_entry.pack(fill="x", pady=(0, 12))
+        self.search_entry.bind("<KeyRelease>", self._on_search)
+
+        self.results_frame = ctk.CTkScrollableFrame(content, fg_color="transparent")
+        self.results_frame.pack(fill="both", expand=True)
+
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.bind("<Return>", self._on_enter)
+        self.bind("<Up>", self._on_up)
+        self.bind("<Down>", self._on_down)
+
+        self.search_entry.focus_set()
+        self._apply_filter("")
+
+    def _on_search(self, _event=None):
+        self._apply_filter(self.search_entry.get())
+
+    def _apply_filter(self, term: str):
+        term = term.strip().lower()
+        if not term:
+            self.filtered = list(self.all_snippets)
+        else:
+            self.filtered = [
+                s
+                for s in self.all_snippets
+                if term in str(s.get("name", "")).lower()
+                or term in str(s.get("category", "")).lower()
+                or term in str(s.get("content", "")).lower()
+            ]
+        self._rebuild_results()
+
+    def _rebuild_results(self):
+        for child in self.results_frame.winfo_children():
+            child.destroy()
+        self.result_buttons.clear()
+
+        if not self.filtered:
+            ctk.CTkLabel(
+                self.results_frame,
+                text="No snippets found.",
+                font=ctk.CTkFont(family="Segoe UI", size=12),
+                text_color=self.colors["text_muted"],
+            ).pack(pady=16)
+            self.active_index = 0
+            return
+
+        for idx, snippet in enumerate(self.filtered):
+            name = str(snippet.get("name", "Snippet"))
+            category = str(snippet.get("category", "General"))
+            first_line = next(
+                (line.strip() for line in str(snippet.get("content", "")).splitlines() if line.strip()),
+                "",
+            )
+            if len(first_line) > 72:
+                first_line = first_line[:71].rstrip() + "..."
+            label = f"{name} | {category}"
+            if first_line:
+                label = f"{label} | {first_line}"
+
+            btn = ctk.CTkButton(
+                self.results_frame,
+                text=label,
+                height=38,
+                corner_radius=8,
+                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold" if idx == 0 else "normal"),
+                fg_color=self.colors["accent_glow"] if idx == 0 else self.colors["surface"],
+                hover_color=self.colors["border"],
+                text_color=self.colors["text_primary"],
+                anchor="w",
+                command=lambda s=snippet: self._insert(s),
+            )
+            btn.pack(fill="x", pady=4, padx=4)
+            self.result_buttons.append(btn)
+
+        self.active_index = 0
+        self._highlight_active()
+
+    def _highlight_active(self):
+        for i, btn in enumerate(self.result_buttons):
+            if i == self.active_index:
+                btn.configure(
+                    fg_color=self.colors["accent_glow"],
+                    text_color=self.colors["text_primary"],
+                    font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                )
+            else:
+                btn.configure(
+                    fg_color=self.colors["surface"],
+                    text_color=self.colors["text_secondary"],
+                    font=ctk.CTkFont(family="Segoe UI", size=12),
+                )
+
+    def _on_up(self, _event=None):
+        if not self.filtered:
+            return "break"
+        self.active_index = max(0, self.active_index - 1)
+        self._highlight_active()
+        return "break"
+
+    def _on_down(self, _event=None):
+        if not self.filtered:
+            return "break"
+        self.active_index = min(len(self.filtered) - 1, self.active_index + 1)
+        self._highlight_active()
+        return "break"
+
+    def _on_enter(self, _event=None):
+        if not self.filtered:
+            return "break"
+        self._insert(self.filtered[self.active_index])
+        return "break"
+
+    def _insert(self, snippet: dict):
+        self.on_insert(str(snippet.get("content", "")))
         self.destroy()
 
 
@@ -828,7 +1010,7 @@ class ConfirmDialog(ctk.CTkToplevel):
 
 
 class CommandPaletteDialog(ctk.CTkToplevel):
-    """Quick command palette for jumping to prompts."""
+    """Command palette for prompts and quick actions."""
 
     def __init__(
         self,
@@ -836,18 +1018,22 @@ class CommandPaletteDialog(ctk.CTkToplevel):
         prompts: List[Prompt],
         colors: Dict[str, str],
         on_select: Callable[[Prompt], None],
+        actions: Optional[List[Dict[str, str]]] = None,
+        on_action: Optional[Callable[[str], None]] = None,
         **kwargs,
     ):
         super().__init__(master, **kwargs)
         self.colors = colors
         self.on_select = on_select
+        self.on_action = on_action
         self.all_prompts = prompts
-        self.filtered: List[Prompt] = []
+        self.actions = actions or []
+        self.filtered: List[Dict[str, Any]] = []
         self.result_buttons: List[ctk.CTkButton] = []
         self.active_index = 0
 
         self.title("Command Palette")
-        self.geometry("560x520")
+        self.geometry("600x540")
         self.resizable(False, False)
         self.configure(fg_color=colors["bg"])
 
@@ -855,8 +1041,8 @@ class CommandPaletteDialog(ctk.CTkToplevel):
         self.grab_set()
 
         self.update_idletasks()
-        width = 560
-        height = 520
+        width = 600
+        height = 540
         x = (self.winfo_screenwidth() - width) // 2
         y = (self.winfo_screenheight() - height) // 2
         self.geometry(f"{width}x{height}+{x}+{y}")
@@ -867,21 +1053,19 @@ class CommandPaletteDialog(ctk.CTkToplevel):
         content = ctk.CTkFrame(card, fg_color="transparent")
         content.pack(fill="both", expand=True, padx=24, pady=24)
 
-        title = ctk.CTkLabel(
+        ctk.CTkLabel(
             content,
             text="Command Palette",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=colors["text_primary"],
-        )
-        title.pack(anchor="w", pady=(0, 12))
+        ).pack(anchor="w", pady=(0, 10))
 
-        hint = ctk.CTkLabel(
+        ctk.CTkLabel(
             content,
-            text="Search prompts and press Enter to open",
+            text="Search prompts and actions. Enter to run, Esc to close.",
             font=ctk.CTkFont(family="Segoe UI", size=12),
             text_color=colors["text_secondary"],
-        )
-        hint.pack(anchor="w", pady=(0, 12))
+        ).pack(anchor="w", pady=(0, 10))
 
         self.search_entry = ctk.CTkEntry(
             content,
@@ -892,16 +1076,12 @@ class CommandPaletteDialog(ctk.CTkToplevel):
             border_width=1,
             corner_radius=10,
             text_color=colors["text_primary"],
-            placeholder_text="Type to search (name, tags, content)...",
+            placeholder_text="Search prompts/actions...",
         )
-        self.search_entry.pack(fill="x", pady=(0, 16))
+        self.search_entry.pack(fill="x", pady=(0, 14))
         self.search_entry.bind("<KeyRelease>", self._on_search)
 
-        self.results_frame = ctk.CTkScrollableFrame(
-            content,
-            fg_color="transparent",
-            height=300,
-        )
+        self.results_frame = ctk.CTkScrollableFrame(content, fg_color="transparent", height=320)
         self.results_frame.pack(fill="both", expand=True)
 
         self.empty_label = ctk.CTkLabel(
@@ -924,19 +1104,41 @@ class CommandPaletteDialog(ctk.CTkToplevel):
 
     def _apply_filter(self, term: str):
         term = term.strip().lower()
+        prompt_results = self._build_prompt_results(term)
+        action_results = self._build_action_results(term)
+        self.filtered = (action_results + prompt_results)[:60]
+        self._rebuild_results()
+
+    def _build_prompt_results(self, term: str) -> List[Dict[str, Any]]:
         if term:
-            filtered = [
-                p for p in self.all_prompts
+            prompts = [
+                p
+                for p in self.all_prompts
                 if term in p.name.lower()
                 or term in p.content.lower()
                 or any(term in t.lower() for t in p.tags)
             ]
         else:
-            filtered = list(self.all_prompts)
+            prompts = list(self.all_prompts)
+        prompts = self._sort_prompts(prompts)
+        return [{"kind": "prompt", "prompt": p} for p in prompts]
 
-        filtered = self._sort_prompts(filtered)
-        self.filtered = filtered[:50]
-        self._rebuild_results()
+    def _build_action_results(self, term: str) -> List[Dict[str, Any]]:
+        results: List[tuple[int, Dict[str, str]]] = []
+        for action in self.actions:
+            label = str(action.get("label", ""))
+            keywords = str(action.get("keywords", ""))
+            haystack = f"{label} {keywords}".lower().strip()
+            if term and term not in haystack:
+                continue
+            score = 0
+            if term and haystack.startswith(term):
+                score = 2
+            elif term and term in label.lower():
+                score = 1
+            results.append((score, action))
+        results.sort(key=lambda item: item[0], reverse=True)
+        return [{"kind": "action", "action": action} for _, action in results]
 
     def _sort_prompts(self, prompts: List[Prompt]) -> List[Prompt]:
         def parse_time(value: str) -> datetime:
@@ -967,8 +1169,8 @@ class CommandPaletteDialog(ctk.CTkToplevel):
             self.active_index = 0
             return
 
-        for idx, prompt in enumerate(self.filtered):
-            label = self._build_label(prompt)
+        for idx, result in enumerate(self.filtered):
+            label = self._build_label(result)
             btn = ctk.CTkButton(
                 self.results_frame,
                 text=label,
@@ -979,7 +1181,7 @@ class CommandPaletteDialog(ctk.CTkToplevel):
                 hover_color=self.colors["border"],
                 text_color=self.colors["text_primary"],
                 anchor="w",
-                command=lambda p=prompt: self._select(p),
+                command=lambda r=result: self._select_result(r),
             )
             btn.pack(fill="x", pady=4, padx=4)
             self.result_buttons.append(btn)
@@ -987,11 +1189,18 @@ class CommandPaletteDialog(ctk.CTkToplevel):
         self.active_index = 0
         self._highlight_active()
 
-    def _build_label(self, prompt: Prompt) -> str:
+    def _build_label(self, result: Dict[str, Any]) -> str:
+        if result.get("kind") == "action":
+            action = result.get("action", {})
+            shortcut = str(action.get("shortcut", "")).strip()
+            shortcut_text = f" [{shortcut}]" if shortcut else ""
+            return f"Run: {action.get('label', 'Action')}{shortcut_text}"
+
+        prompt: Prompt = result["prompt"]
         tags = ", ".join(prompt.tags[:3])
-        tag_text = f" · {tags}" if tags else ""
-        pin = "★ " if getattr(prompt, "pinned", False) else ""
-        return f"{pin}{prompt.name} · {prompt.category.value}{tag_text}"
+        tag_text = f" | {tags}" if tags else ""
+        pin = "* " if getattr(prompt, "pinned", False) else ""
+        return f"{pin}{prompt.name} | {prompt.category.value}{tag_text}"
 
     def _highlight_active(self):
         for i, btn in enumerate(self.result_buttons):
@@ -1025,13 +1234,21 @@ class CommandPaletteDialog(ctk.CTkToplevel):
     def _on_enter(self, _event=None):
         if not self.filtered:
             return "break"
-        self._select(self.filtered[self.active_index])
+        self._select_result(self.filtered[self.active_index])
         return "break"
 
-    def _select(self, prompt: Prompt):
+    def _select_result(self, result: Dict[str, Any]):
+        if result.get("kind") == "action":
+            action = result.get("action", {})
+            action_id = str(action.get("id", "")).strip()
+            if action_id and self.on_action:
+                self.on_action(action_id)
+            self.destroy()
+            return
+
+        prompt: Prompt = result["prompt"]
         self.on_select(prompt)
         self.destroy()
-
 
 class PromptHistoryDialog(ctk.CTkToplevel):
     """Dialog showing prompt version history."""
@@ -1072,7 +1289,7 @@ class PromptHistoryDialog(ctk.CTkToplevel):
 
         title = ctk.CTkLabel(
             content,
-            text=f"History · {prompt.name}",
+            text=f"History Â· {prompt.name}",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=colors["text_primary"],
         )
@@ -1141,7 +1358,7 @@ class PromptHistoryDialog(ctk.CTkToplevel):
 
             snippet = self._build_snippet(version.get("content", ""))
             meta = self._build_meta(version)
-            detail = f"{meta} · {snippet}" if snippet else meta
+            detail = f"{meta} Â· {snippet}" if snippet else meta
 
             detail_label = ctk.CTkLabel(
                 left,
@@ -1176,14 +1393,14 @@ class PromptHistoryDialog(ctk.CTkToplevel):
             return "Unknown time"
         try:
             dt = datetime.fromisoformat(iso_time)
-            return dt.strftime("%b %d, %Y · %I:%M %p")
+            return dt.strftime("%b %d, %Y Â· %I:%M %p")
         except Exception:
             return iso_time
 
     def _build_snippet(self, content: str) -> str:
         content = content.strip().replace("\n", " ")
         if len(content) > 80:
-            return content[:77].rstrip() + "…"
+            return content[:77].rstrip() + "â€¦"
         return content
 
     def _build_meta(self, version: dict) -> str:
@@ -1192,7 +1409,7 @@ class PromptHistoryDialog(ctk.CTkToplevel):
         tags = version.get("tags") or []
         tag_text = ", ".join(tags[:3])
         parts = [p for p in (name, category, tag_text) if p]
-        return " · ".join(parts)
+        return " Â· ".join(parts)
 
 
 class TagInputDialog(ctk.CTkToplevel):
@@ -1299,3 +1516,4 @@ class TagInputDialog(ctk.CTkToplevel):
     def _on_cancel(self):
         self.result = None
         self.destroy()
+

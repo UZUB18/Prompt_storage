@@ -16,7 +16,7 @@ except ImportError:
     HAS_PIL = False
 
 from ..models import Prompt, Category
-from .dialogs import FindReplaceDialog, ConfirmDialog
+from .dialogs import FindReplaceDialog, ConfirmDialog, VariableInputDialog, SnippetPickerDialog
 from .tag_chips import TagChipsInput
 
 
@@ -35,7 +35,11 @@ class PromptEditor(ctk.CTkFrame):
         on_version_bump: Callable[[Prompt], None],
         on_toast: Callable[[str], None],
         on_change: Callable[[], None],
+        on_autosave_draft: Callable[[str, dict], None],
         colors: Dict[str, str],
+        on_preview_toggle: Optional[Callable[[bool], None]] = None,
+        preview_enabled: bool = False,
+        token_mode: str = "approx",
         **kwargs
     ):
         super().__init__(master, fg_color=colors["surface"], corner_radius=0, **kwargs)
@@ -47,7 +51,11 @@ class PromptEditor(ctk.CTkFrame):
         self.on_version_bump = on_version_bump
         self.on_toast = on_toast
         self.on_change = on_change
+        self.on_autosave_draft = on_autosave_draft
+        self.on_preview_toggle = on_preview_toggle
         self.colors = colors
+        self.preview_enabled = bool(preview_enabled)
+        self.token_mode = token_mode
         self.current_prompt: Optional[Prompt] = None
         self._find_dialog: Optional[FindReplaceDialog] = None
         self._replace_dialog: Optional[FindReplaceDialog] = None
@@ -57,6 +65,30 @@ class PromptEditor(ctk.CTkFrame):
         self._hidden_content_cache = ""
         self._auto_hide_after_ms = 60000
         self._auto_hide_id = None
+        self._draft_autosave_after_id = None
+        self._snippet_dialog: Optional[SnippetPickerDialog] = None
+        self.default_snippets = [
+            {
+                "name": "Role + Goals",
+                "category": "Structure",
+                "content": "## Role\nYou are ...\n\n## Goal\n...\n\n## Constraints\n- ...",
+            },
+            {
+                "name": "Output schema",
+                "category": "Structure",
+                "content": "Return JSON:\n{\n  \"summary\": \"\",\n  \"actions\": []\n}",
+            },
+            {
+                "name": "Few-shot block",
+                "category": "Examples",
+                "content": "### Example 1\nInput: ...\nOutput: ...\n\n### Example 2\nInput: ...\nOutput: ...",
+            },
+            {
+                "name": "Variable starter",
+                "category": "Variables",
+                "content": "Project: {project}\nAudience: {audience}\nTone: {tone}\nDeliverable: {deliverable}",
+            },
+        ]
 
         # Use grid for main layout - allows proper expansion
         self.grid_columnconfigure(0, weight=1)
@@ -193,6 +225,54 @@ class PromptEditor(ctk.CTkFrame):
         )
         self.copy_as_btn.pack(side="left", padx=(8, 0), pady=10)
 
+        self.snippet_btn = ctk.CTkButton(
+            right_frame,
+            text="Snippets",
+            width=78,
+            height=28,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=self.colors["surface"],
+            hover_color=self.colors["bg"],
+            text_color=self.colors["text_secondary"],
+            border_width=1,
+            border_color=self.colors["border"],
+            command=self.open_snippet_picker,
+        )
+        self.snippet_btn.pack(side="left", padx=(8, 0), pady=10)
+
+        self.variables_btn = ctk.CTkButton(
+            right_frame,
+            text="Variables",
+            width=78,
+            height=28,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=self.colors["surface"],
+            hover_color=self.colors["bg"],
+            text_color=self.colors["text_secondary"],
+            border_width=1,
+            border_color=self.colors["border"],
+            command=self.fill_variables,
+        )
+        self.variables_btn.pack(side="left", padx=(8, 0), pady=10)
+
+        self.preview_btn = ctk.CTkButton(
+            right_frame,
+            text="Preview",
+            width=70,
+            height=28,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=self.colors["accent_glow"] if self.preview_enabled else self.colors["surface"],
+            hover_color=self.colors["bg"],
+            text_color=self.colors["accent"] if self.preview_enabled else self.colors["text_secondary"],
+            border_width=1,
+            border_color=self.colors["border"],
+            command=self._on_preview_button,
+        )
+        self.preview_btn.pack(side="left", padx=(8, 0), pady=10)
+
         # ========== CONTENT (Expandable) ==========
         content = ctk.CTkFrame(self.card, fg_color="transparent")
         content.grid(row=2, column=0, sticky="nsew", padx=24, pady=12)
@@ -200,6 +280,7 @@ class PromptEditor(ctk.CTkFrame):
         # Grid layout for form - content expands
         content.grid_columnconfigure(0, weight=1)
         content.grid_columnconfigure(1, weight=1)
+        content.grid_columnconfigure(2, weight=1)
         content.grid_rowconfigure(0, weight=0)  # Name/Category row
         content.grid_rowconfigure(1, weight=0)  # Tags row
         content.grid_rowconfigure(2, weight=0)  # Content label
@@ -341,6 +422,17 @@ class PromptEditor(ctk.CTkFrame):
         self.content_text.grid(row=3, column=0, columnspan=2, sticky="nsew")
         self.content_text.bind("<KeyRelease>", self._on_field_change)
 
+        self.preview_text = ctk.CTkTextbox(
+            content,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color=colors["bg"],
+            text_color=colors["text_secondary"],
+            border_color=colors["border"],
+            border_width=1,
+            corner_radius=10,
+            wrap="word",
+        )
+
         # ========== FOOTER (Fixed) ==========
         footer = ctk.CTkFrame(self.card, fg_color=colors["surface"], corner_radius=0, height=60)
         footer.grid(row=3, column=0, sticky="ew")
@@ -429,6 +521,8 @@ class PromptEditor(ctk.CTkFrame):
             command=self._on_delete,
         )
         self.delete_btn.pack(side="right", padx=(0, 8), pady=12)
+        self._apply_preview_layout()
+        self._refresh_preview()
 
     def set_prompt(self, prompt: Optional[Prompt]):
         """Set prompt to edit."""
@@ -456,6 +550,83 @@ class PromptEditor(ctk.CTkFrame):
         self._update_pin_button()
         self._update_state_label()
         self._update_char_count()
+        self._refresh_preview()
+
+    def set_draft(self, draft: dict):
+        if not self.current_prompt:
+            return
+        name = str(draft.get("name", self.current_prompt.name))
+        category = str(draft.get("category", self.current_prompt.category.value))
+        tags = draft.get("tags", self.current_prompt.tags)
+        content = str(draft.get("content", self.current_prompt.content))
+        sensitive = bool(draft.get("sensitive", self.current_prompt.sensitive))
+
+        self.name_entry.delete(0, "end")
+        self.name_entry.insert(0, name)
+        if category in [c.value for c in Category]:
+            self.category_var.set(category)
+        else:
+            self.category_var.set(Category.OTHER.value)
+        self.tags_input.set_tags(list(tags) if isinstance(tags, list) else [])
+        self.sensitive_var.set(sensitive)
+        self._content_hidden = bool(sensitive)
+        self._hidden_content_cache = content
+        self._apply_sensitive_view()
+        self._refresh_preview()
+
+    def toggle_preview(self):
+        self.preview_enabled = not self.preview_enabled
+        self._apply_preview_layout()
+        self._refresh_preview()
+
+    def _on_preview_button(self):
+        self.toggle_preview()
+        if self.on_preview_toggle:
+            self.on_preview_toggle(self.preview_enabled)
+
+    def _apply_preview_layout(self):
+        if self.preview_enabled:
+            self.content_text.grid_configure(column=0, columnspan=1)
+            self.preview_text.grid(row=3, column=1, columnspan=2, sticky="nsew", padx=(10, 0))
+            self.preview_btn.configure(
+                fg_color=self.colors["accent_glow"],
+                text_color=self.colors["accent"],
+                text="Preview On",
+            )
+        else:
+            self.preview_text.grid_forget()
+            self.content_text.grid_configure(column=0, columnspan=2)
+            self.preview_btn.configure(
+                fg_color=self.colors["surface"],
+                text_color=self.colors["text_secondary"],
+                text="Preview",
+            )
+
+    def _render_markdown_preview(self, content: str) -> str:
+        lines: list[str] = []
+        for raw in content.splitlines():
+            line = raw.rstrip()
+            if line.startswith("### "):
+                lines.append(f"[H3] {line[4:]}")
+            elif line.startswith("## "):
+                lines.append(f"[H2] {line[3:]}")
+            elif line.startswith("# "):
+                lines.append(f"[H1] {line[2:]}")
+            elif line.startswith("- "):
+                lines.append(f"• {line[2:]}")
+            elif line.startswith("```"):
+                lines.append("[code block]")
+            else:
+                lines.append(line)
+        return "\n".join(lines)
+
+    def _refresh_preview(self):
+        content = self._get_current_content()
+        rendered = self._render_markdown_preview(content)
+        self.preview_text.configure(state="normal")
+        self.preview_text.delete("1.0", "end")
+        self.preview_text.insert("1.0", rendered)
+        self.preview_text.configure(state="disabled")
 
     def _update_pin_button(self):
         if not self.current_prompt:
@@ -589,6 +760,50 @@ class PromptEditor(ctk.CTkFrame):
             return
         self._copy_text(content, "plain text")
 
+    def open_snippet_picker(self):
+        if self._snippet_dialog and self._snippet_dialog.winfo_exists():
+            self._snippet_dialog.focus_set()
+            return
+        self._snippet_dialog = SnippetPickerDialog(
+            self,
+            snippets=self.default_snippets,
+            colors=self.colors,
+            on_insert=self.insert_snippet,
+        )
+
+    def insert_snippet(self, text: str):
+        if not text:
+            return
+        textbox = getattr(self.content_text, "_textbox", self.content_text)
+        try:
+            if textbox.tag_ranges("sel"):
+                start = textbox.index("sel.first")
+                end = textbox.index("sel.last")
+                textbox.delete(start, end)
+                textbox.insert(start, text)
+                textbox.mark_set("insert", f"{start}+{len(text)}c")
+            else:
+                textbox.insert("insert", text)
+        except Exception:
+            textbox.insert("insert", text)
+        self._on_field_change()
+
+    def fill_variables(self):
+        content = self._get_current_content()
+        placeholders = sorted({m.group(1) for m in re.finditer(r"\{([a-zA-Z0-9_\-]+)\}", content)})
+        if not placeholders:
+            self.on_toast("No {variables} found")
+            return
+
+        def handle(values: Dict[str, str]):
+            updated = content
+            for key, value in values.items():
+                replacement = value if value else "{" + key + "}"
+                updated = updated.replace("{" + key + "}", replacement)
+            self._set_content(updated)
+
+        VariableInputDialog(self, variables=placeholders, on_submit=handle, colors=self.colors)
+
     def _show_format_menu(self):
         if self._format_menu is None:
             menu = tk.Menu(self, tearoff=0)
@@ -719,6 +934,163 @@ class PromptEditor(ctk.CTkFrame):
             self.on_toast("No matches found")
         return count
 
+    # Rich Markdown preview renderer (human-friendly reading mode).
+    def _configure_preview_tags(self, text_widget):
+        text_widget.tag_configure("md_h1", font=("Segoe UI", 18, "bold"), foreground=self.colors["text_primary"], spacing1=8, spacing3=4)
+        text_widget.tag_configure("md_h2", font=("Segoe UI", 15, "bold"), foreground=self.colors["text_primary"], spacing1=6, spacing3=4)
+        text_widget.tag_configure("md_h3", font=("Segoe UI", 13, "bold"), foreground=self.colors["text_primary"], spacing1=4, spacing3=2)
+        text_widget.tag_configure("md_body", font=("Segoe UI", 12), foreground=self.colors["text_secondary"])
+        text_widget.tag_configure("md_bold", font=("Segoe UI", 12, "bold"))
+        text_widget.tag_configure("md_italic", font=("Segoe UI", 12, "italic"))
+        text_widget.tag_configure("md_inline_code", font=("Consolas", 11), background=self.colors["accent_glow"], foreground=self.colors["text_primary"])
+        text_widget.tag_configure("md_code_block", font=("Consolas", 11), background=self.colors["surface"], foreground=self.colors["text_primary"], lmargin1=14, lmargin2=14, spacing1=4, spacing3=4)
+        text_widget.tag_configure("md_quote", foreground=self.colors["text_muted"], lmargin1=12, lmargin2=12)
+        text_widget.tag_configure("md_link", foreground=self.colors["accent"], underline=True)
+        text_widget.tag_configure("md_bullet", foreground=self.colors["text_secondary"], lmargin1=8, lmargin2=20)
+
+    def _insert_markdown_inline(self, text_widget, text: str, default_tag: str):
+        token_pattern = re.compile(r"(\*\*[^*\n]+\*\*|\*[^*\n]+\*|`[^`\n]+`|\[[^\]]+\]\([^)]+\))")
+        pos = 0
+        for match in token_pattern.finditer(text):
+            start, end = match.span()
+            if start > pos:
+                text_widget.insert("end", text[pos:start], (default_tag,))
+            token = match.group(0)
+            if token.startswith("**") and token.endswith("**"):
+                text_widget.insert("end", token[2:-2], ("md_bold",))
+            elif token.startswith("*") and token.endswith("*"):
+                text_widget.insert("end", token[1:-1], ("md_italic",))
+            elif token.startswith("`") and token.endswith("`"):
+                text_widget.insert("end", token[1:-1], ("md_inline_code",))
+            else:
+                link_match = re.match(r"\[([^\]]+)\]\(([^)]+)\)", token)
+                if link_match:
+                    text_widget.insert("end", f"{link_match.group(1)} ({link_match.group(2)})", ("md_link",))
+                else:
+                    text_widget.insert("end", token, (default_tag,))
+            pos = end
+        if pos < len(text):
+            text_widget.insert("end", text[pos:], (default_tag,))
+
+    def _refresh_preview(self):
+        content = self._get_current_content()
+        self.preview_text.configure(state="normal")
+        self.preview_text.delete("1.0", "end")
+        text_widget = getattr(self.preview_text, "_textbox", self.preview_text)
+        self._configure_preview_tags(text_widget)
+
+        in_code_block = False
+        for raw_line in content.splitlines():
+            line = raw_line.rstrip("\r")
+            if line.strip().startswith("```"):
+                in_code_block = not in_code_block
+                continue
+
+            if in_code_block:
+                text_widget.insert("end", line + "\n", ("md_code_block",))
+                continue
+
+            h_match = re.match(r"^(#{1,3})\s+(.*)$", line)
+            if h_match:
+                level = len(h_match.group(1))
+                tag = "md_h1" if level == 1 else "md_h2" if level == 2 else "md_h3"
+                self._insert_markdown_inline(text_widget, h_match.group(2).strip(), tag)
+                text_widget.insert("end", "\n")
+                continue
+
+            q_match = re.match(r"^>\s?(.*)$", line)
+            if q_match:
+                self._insert_markdown_inline(text_widget, q_match.group(1), "md_quote")
+                text_widget.insert("end", "\n")
+                continue
+
+            ul_match = re.match(r"^\s*[-*+]\s+(.*)$", line)
+            if ul_match:
+                text_widget.insert("end", "• ", ("md_bullet",))
+                self._insert_markdown_inline(text_widget, ul_match.group(1), "md_bullet")
+                text_widget.insert("end", "\n")
+                continue
+
+            ol_match = re.match(r"^\s*(\d+)\.\s+(.*)$", line)
+            if ol_match:
+                text_widget.insert("end", f"{ol_match.group(1)}. ", ("md_bullet",))
+                self._insert_markdown_inline(text_widget, ol_match.group(2), "md_bullet")
+                text_widget.insert("end", "\n")
+                continue
+
+            if not line.strip():
+                text_widget.insert("end", "\n")
+                continue
+
+            self._insert_markdown_inline(text_widget, line, "md_body")
+            text_widget.insert("end", "\n")
+
+        self.preview_text.configure(state="disabled")
+
+    # Override for throughput mode: autosave drafts + preview refresh + token counts.
+    def _update_char_count(self):
+        content = self._get_current_content()
+        chars = len(content)
+        words = len(re.findall(r"\S+", content))
+        lines = 0 if not content else content.count("\n") + 1
+        approx_tokens = self._estimate_tokens(content)
+        token_text = f"{approx_tokens:,} tok~"
+        if self.token_mode == "exact":
+            exact = self._exact_tokens(content)
+            if exact is not None:
+                token_text = f"{exact:,} tok"
+        self.char_count_label.configure(
+            text=f"{chars:,} chars | {words:,} words | {lines:,} lines | {token_text}"
+        )
+
+    def _estimate_tokens(self, content: str) -> int:
+        if not content:
+            return 0
+        return max(1, round(len(content) / 4))
+
+    def _exact_tokens(self, content: str) -> Optional[int]:
+        tokenizer = os.environ.get("PROMPTLIB_TOKENIZER", "").strip().lower()
+        if tokenizer != "tiktoken":
+            return None
+        try:
+            import tiktoken  # type: ignore
+
+            enc = tiktoken.get_encoding("cl100k_base")
+            return len(enc.encode(content))
+        except Exception:
+            return None
+
+    def _on_field_change(self, event=None):
+        if self.current_prompt:
+            self.on_change()
+            self._update_char_count()
+            self._refresh_preview()
+            self._schedule_draft_autosave()
+
+    def _schedule_draft_autosave(self):
+        if not self.current_prompt:
+            return
+        if self._draft_autosave_after_id is not None:
+            try:
+                self.after_cancel(self._draft_autosave_after_id)
+            except Exception:
+                pass
+            self._draft_autosave_after_id = None
+        self._draft_autosave_after_id = self.after(450, self._autosave_draft_now)
+
+    def _autosave_draft_now(self):
+        self._draft_autosave_after_id = None
+        if not self.current_prompt:
+            return
+        draft = {
+            "name": self.name_entry.get().strip(),
+            "category": self.category_var.get(),
+            "tags": self.tags_input.get_tags(),
+            "content": self._get_current_content(),
+            "sensitive": bool(self.sensitive_var.get()),
+        }
+        self.on_autosave_draft(self.current_prompt.id, draft)
+
     def _on_sensitive_toggle(self):
         if not self.current_prompt:
             return
@@ -765,6 +1137,7 @@ class PromptEditor(ctk.CTkFrame):
         if not self.sensitive_var.get():
             self.reveal_btn.configure(state="disabled")
         self._update_char_count()
+        self._refresh_preview()
 
     def _get_current_content(self) -> str:
         if self._content_hidden:
@@ -777,13 +1150,16 @@ class PromptEditor(ctk.CTkFrame):
             self._apply_sensitive_view()
             if self.current_prompt:
                 self.on_change()
+                self._schedule_draft_autosave()
             return
         self.content_text.configure(state="normal")
         self.content_text.delete("1.0", "end")
         self.content_text.insert("1.0", content)
         if self.current_prompt:
             self.on_change()
+            self._schedule_draft_autosave()
         self._update_char_count()
+        self._refresh_preview()
         self._schedule_auto_hide()
 
     def _confirm_sensitive_copy(self, action: str) -> bool:
