@@ -142,3 +142,17 @@ def set_token_count_mode(mode: str):
     config = load_config()
     config["token_count_mode"] = mode.strip().lower() if isinstance(mode, str) else "approx"
     save_config(config)
+
+
+def get_ui_density_mode(default: str = "native_lite") -> str:
+    config = load_config()
+    value = config.get("ui_density_mode")
+    if isinstance(value, str) and value.strip():
+        return value.strip().lower()
+    return default
+
+
+def set_ui_density_mode(mode: str):
+    config = load_config()
+    config["ui_density_mode"] = mode.strip().lower() if isinstance(mode, str) else "native_lite"
+    save_config(config)

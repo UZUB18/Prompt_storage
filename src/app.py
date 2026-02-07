@@ -1,4 +1,4 @@
-"""Main application window - Apple 2026 Edition."""
+﻿"""Main application window - Apple 2026 Edition."""
 import customtkinter as ctk
 from tkinter import filedialog
 from typing import Optional
@@ -21,6 +21,8 @@ from .config import (
     set_preview_split_enabled,
     get_token_count_mode,
     set_token_count_mode,
+    get_ui_density_mode,
+    set_ui_density_mode,
 )
 from .resources import resource_path
 from .components.prompt_list import PromptList
@@ -49,9 +51,9 @@ class PromptLibraryApp(ctk.CTk):
         "card": "#FFFFFF",             # White cards
         "input": "#FFFFFF",            # White inputs
         "border": "#E5E5E5",           # Light borders
-        "accent": "#8B5CF6",           # Violet (from mockup)
-        "accent_hover": "#7C3AED",     # Darker violet
-        "accent_glow": "#E9DEFF",      # Light violet (no alpha)
+        "accent": "#2563EB",           # Native-like blue
+        "accent_hover": "#1D4ED8",     # Darker blue
+        "accent_glow": "#E8F0FF",      # Light blue
         "success": "#28C840",          # Apple Green
         "danger": "#FF5F57",           # Apple Red
         "warning": "#F59E0B",          # Amber
@@ -71,9 +73,9 @@ class PromptLibraryApp(ctk.CTk):
         "card": "#1A1A1D",
         "input": "#1E1E21",
         "border": "#2E2E33",
-        "accent": "#8B5CF6",
-        "accent_hover": "#7C3AED",
-        "accent_glow": "#2B2440",
+        "accent": "#4C8DFF",
+        "accent_hover": "#3B7EF2",
+        "accent_glow": "#1F2A3D",
         "success": "#2BD24A",
         "danger": "#FF6B63",
         "warning": "#F59E0B",
@@ -129,6 +131,10 @@ class PromptLibraryApp(ctk.CTk):
         if self.token_count_mode not in ("approx", "exact"):
             self.token_count_mode = "approx"
         self.multi_select_mode = False
+        self.ui_density_mode = get_ui_density_mode("native_lite")
+        if self.ui_density_mode != "native_lite":
+            self.ui_density_mode = "native_lite"
+            set_ui_density_mode(self.ui_density_mode)
         self.bulk_frame = None
         self.bulk_count_label = None
         self.bulk_delete_btn = None
@@ -413,32 +419,7 @@ class PromptLibraryApp(ctk.CTk):
         )
         self.count_label.grid(row=0, column=0, sticky="w")
 
-        self.theme_var = ctk.BooleanVar(value=self.theme == "dark")
-        self.theme_toggle = ctk.CTkSwitch(
-            count_frame,
-            text="Dark mode",
-            variable=self.theme_var,
-            onvalue=True,
-            offvalue=False,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=self.COLORS["text_muted"],
-            command=self._toggle_theme,
-        )
-        self.theme_toggle.grid(row=0, column=1, sticky="e")
-
-        # UI scale control (useful on large/high-DPI monitors)
-        ui_scale_frame = ctk.CTkFrame(count_frame, fg_color="transparent")
-        ui_scale_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        ui_scale_frame.grid_columnconfigure(1, weight=1)
-
-        ui_scale_label = ctk.CTkLabel(
-            ui_scale_frame,
-            text="UI Scale",
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            text_color=self.COLORS["text_muted"],
-        )
-        ui_scale_label.grid(row=0, column=0, sticky="w", padx=(0, 8))
-
+        # Keep UI scale value available for menu-based control.
         ui_scale_options = ["Auto", "100%", "110%", "125%", "150%", "175%", "200%"]
         pref = (get_ui_scale() or "auto").strip().lower()
         if pref == "auto":
@@ -452,34 +433,6 @@ class PromptLibraryApp(ctk.CTk):
             display = "Auto"
 
         self.ui_scale_var = ctk.StringVar(value=display)
-
-        ui_scale_outer = ctk.CTkFrame(
-            ui_scale_frame,
-            fg_color=self.COLORS["surface"],
-            corner_radius=10,
-            border_width=1,
-            border_color=self.COLORS["border"],
-        )
-        ui_scale_outer.grid(row=0, column=1, sticky="ew")
-        ui_scale_outer.grid_columnconfigure(0, weight=1)
-
-        self.ui_scale_menu = ctk.CTkOptionMenu(
-            ui_scale_outer,
-            values=ui_scale_options,
-            variable=self.ui_scale_var,
-            height=28,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color=self.COLORS["surface"],
-            text_color=self.COLORS["text_primary"],
-            button_color=self.COLORS["surface"],
-            button_hover_color=self.COLORS["bg"],
-            dropdown_fg_color=self.COLORS["surface"],
-            dropdown_text_color=self.COLORS["text_primary"],
-            dropdown_hover_color=self.COLORS["accent_glow"],
-            corner_radius=9,
-            command=lambda _: self._on_ui_scale_change(),
-        )
-        self.ui_scale_menu.pack(fill="x", padx=1, pady=1)
 
         # Row 5: Divider between controls and list (sticky header)
         ctk.CTkFrame(sidebar, height=1, fg_color=self.COLORS["border"]).grid(
@@ -622,29 +575,28 @@ class PromptLibraryApp(ctk.CTk):
 
         self.bulk_tag_menu = None
 
-        # Row 8: Footer actions
+        # Row 8: Bottom utility actions (only high-value actions)
         footer = ctk.CTkFrame(
-            sidebar, 
+            sidebar,
             fg_color=self.COLORS["sidebar_bg"],
             corner_radius=0,
-            height=56,
+            height=52,
         )
         footer.grid(row=8, column=0, sticky="ew")
         footer.grid_propagate(False)
 
-        # Top border for footer
         footer_border = ctk.CTkFrame(footer, height=1, fg_color=self.COLORS["border"])
         footer_border.pack(fill="x", side="top")
 
-        btn_container = ctk.CTkFrame(footer, fg_color="transparent")
-        btn_container.pack(fill="both", expand=True, padx=16, pady=12)
+        actions = ctk.CTkFrame(footer, fg_color="transparent")
+        actions.pack(fill="both", expand=True, padx=10, pady=8)
 
-        import_btn = ctk.CTkButton(
-            btn_container,
+        self.import_btn = ctk.CTkButton(
+            actions,
             text="Import",
-            height=36,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            height=30,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color=self.COLORS["surface"],
             hover_color=self.COLORS["border"],
             text_color=self.COLORS["text_secondary"],
@@ -652,14 +604,14 @@ class PromptLibraryApp(ctk.CTk):
             border_color=self.COLORS["border"],
             command=self._on_import,
         )
-        import_btn.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        self.import_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
 
-        export_btn = ctk.CTkButton(
-            btn_container,
+        self.export_btn = ctk.CTkButton(
+            actions,
             text="Export",
-            height=36,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            height=30,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color=self.COLORS["surface"],
             hover_color=self.COLORS["border"],
             text_color=self.COLORS["text_secondary"],
@@ -667,14 +619,14 @@ class PromptLibraryApp(ctk.CTk):
             border_color=self.COLORS["border"],
             command=self._on_export,
         )
-        export_btn.pack(side="left", fill="x", expand=True)
+        self.export_btn.pack(side="left", fill="x", expand=True, padx=4)
 
-        location_btn = ctk.CTkButton(
-            btn_container,
+        self.library_btn = ctk.CTkButton(
+            actions,
             text="Library...",
-            height=36,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
+            height=30,
+            corner_radius=8,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color=self.COLORS["surface"],
             hover_color=self.COLORS["border"],
             text_color=self.COLORS["text_secondary"],
@@ -682,7 +634,7 @@ class PromptLibraryApp(ctk.CTk):
             border_color=self.COLORS["border"],
             command=self._on_change_library_location,
         )
-        location_btn.pack(side="left", fill="x", expand=True, padx=(6, 0))
+        self.library_btn.pack(side="left", fill="x", expand=True, padx=(4, 0))
 
     def _build_main_area(self):
         """Build the main editor area."""
@@ -811,6 +763,7 @@ class PromptLibraryApp(ctk.CTk):
             return
         if action_id == "toggle_pin" and self.current_prompt:
             self._on_prompt_list_toggle_pin(self.current_prompt)
+            return
 
     def _toggle_token_mode(self):
         self.token_count_mode = "exact" if self.token_count_mode == "approx" else "approx"
@@ -819,14 +772,18 @@ class PromptLibraryApp(ctk.CTk):
         set_token_count_mode(self.token_count_mode)
         self._show_toast(f"Token mode: {self.token_count_mode}")
 
-    def _toggle_theme(self):
-        self.theme = "dark" if self.theme_var.get() else "light"
+    def _toggle_theme(self, theme: Optional[str] = None):
+        if theme in ("light", "dark"):
+            self.theme = theme
+        elif self.theme == "dark":
+            self.theme = "light"
+        else:
+            self.theme = "dark"
         set_theme(self.theme)
         ctk.set_appearance_mode(self.theme)
         self.COLORS = self._get_theme_colors()
         self.configure(fg_color=self.COLORS["bg"])
         self._rebuild_ui()
-
     def _on_ui_scale_change(self):
         value = (self.ui_scale_var.get() or "Auto").strip()
         if value.lower() == "auto":
@@ -1550,3 +1507,4 @@ def run():
     """Run the application."""
     app = PromptLibraryApp()
     app.mainloop()
+

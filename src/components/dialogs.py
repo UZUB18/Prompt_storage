@@ -122,7 +122,7 @@ class NewPromptDialog(ctk.CTkToplevel):
         self.tags_input = TagChipsInput(
             content,
             colors=colors,
-            placeholder_text="Add tags (comma or Enter)â€¦",
+            placeholder_text="Add tags (comma or Enter)...",
         )
         self.tags_input.pack(fill="x", pady=(0, 20))
 
@@ -1400,7 +1400,7 @@ class PromptHistoryDialog(ctk.CTkToplevel):
     def _build_snippet(self, content: str) -> str:
         content = content.strip().replace("\n", " ")
         if len(content) > 80:
-            return content[:77].rstrip() + "â€¦"
+            return content[:77].rstrip() + "..."
         return content
 
     def _build_meta(self, version: dict) -> str:

@@ -57,6 +57,7 @@ class PromptEditor(ctk.CTkFrame):
         self.preview_enabled = bool(preview_enabled)
         self.token_mode = token_mode
         self.current_prompt: Optional[Prompt] = None
+        self._pin_symbol = "\u2606"
         self._find_dialog: Optional[FindReplaceDialog] = None
         self._replace_dialog: Optional[FindReplaceDialog] = None
         self._format_menu: Optional[tk.Menu] = None
@@ -134,63 +135,44 @@ class PromptEditor(ctk.CTkFrame):
         )
         self.title_label.pack(side="left", pady=12)
 
-        # Right: AI buttons + copy
+        # Right: primary actions + compact controls
         right_frame = ctk.CTkFrame(header, fg_color="transparent")
         right_frame.pack(side="right", fill="y")
 
-        # AI Testing buttons
-        ai_container = ctk.CTkFrame(
+        self.ai_provider_var = ctk.StringVar(value="Gemini")
+        self.ai_provider_menu = ctk.CTkOptionMenu(
             right_frame,
-            fg_color=colors["bg"],
+            values=["Gemini", "GPT", "Grok"],
+            variable=self.ai_provider_var,
+            width=90,
+            height=28,
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            fg_color=colors["surface"],
+            text_color=colors["text_secondary"],
+            button_color=colors["surface"],
+            button_hover_color=colors["bg"],
+            dropdown_fg_color=colors["surface"],
+            dropdown_text_color=colors["text_primary"],
+            dropdown_hover_color=colors["accent_glow"],
             corner_radius=10,
-            border_width=1,
-            border_color=colors["border"],
         )
-        ai_container.pack(side="left", pady=10, padx=(0, 8))
+        self.ai_provider_menu.pack(side="left", pady=10, padx=(0, 8))
 
-        self.gemini_btn = ctk.CTkButton(
-            ai_container, text="Gemini", width=55, height=28, corner_radius=6,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color=colors["surface"], hover_color=colors["surface"],
-            text_color="#4285F4", border_width=1, border_color=colors["border"],
-            command=lambda: self._test_in_ai("gemini"),
-        )
-        self.gemini_btn.pack(side="left", padx=2, pady=3)
-
-        self.chatgpt_btn = ctk.CTkButton(
-            ai_container, text="GPT", width=40, height=28, corner_radius=6,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color="transparent", hover_color=colors["surface"],
-            text_color=colors["text_secondary"],
-            command=lambda: self._test_in_ai("chatgpt"),
-        )
-        self.chatgpt_btn.pack(side="left", padx=2, pady=3)
-
-        self.grok_btn = ctk.CTkButton(
-            ai_container, text="Grok", width=40, height=28, corner_radius=6,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color="transparent", hover_color=colors["surface"],
-            text_color=colors["text_secondary"],
-            command=lambda: self._test_in_ai("grok"),
-        )
-        self.grok_btn.pack(side="left", padx=2, pady=3)
-
-        # Pin button
-        self.pin_btn = ctk.CTkButton(
+        self.open_ai_btn = ctk.CTkButton(
             right_frame,
-            text="\u2606",
-            width=30,
+            text="Open in AI",
+            width=84,
             height=28,
             corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=11),
             fg_color=colors["surface"],
             hover_color=colors["bg"],
-            text_color=colors["text_muted"],
+            text_color=colors["text_secondary"],
             border_width=1,
             border_color=colors["border"],
-            command=self._on_toggle_pin,
+            command=self._open_in_selected_ai,
         )
-        self.pin_btn.pack(side="left", pady=10, padx=(0, 8))
+        self.open_ai_btn.pack(side="left", pady=10, padx=(0, 8))
 
         # Copy button
         self.copy_btn = ctk.CTkButton(
@@ -209,54 +191,6 @@ class PromptEditor(ctk.CTkFrame):
         )
         self.copy_btn.pack(side="left", pady=10)
 
-        self.copy_as_btn = ctk.CTkButton(
-            right_frame,
-            text="Copy as",
-            width=74,
-            height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
-            command=self._show_copy_as_menu,
-        )
-        self.copy_as_btn.pack(side="left", padx=(8, 0), pady=10)
-
-        self.snippet_btn = ctk.CTkButton(
-            right_frame,
-            text="Snippets",
-            width=78,
-            height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
-            command=self.open_snippet_picker,
-        )
-        self.snippet_btn.pack(side="left", padx=(8, 0), pady=10)
-
-        self.variables_btn = ctk.CTkButton(
-            right_frame,
-            text="Variables",
-            width=78,
-            height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
-            command=self.fill_variables,
-        )
-        self.variables_btn.pack(side="left", padx=(8, 0), pady=10)
-
         self.preview_btn = ctk.CTkButton(
             right_frame,
             text="Preview",
@@ -272,6 +206,22 @@ class PromptEditor(ctk.CTkFrame):
             command=self._on_preview_button,
         )
         self.preview_btn.pack(side="left", padx=(8, 0), pady=10)
+
+        self.overflow_btn = ctk.CTkButton(
+            right_frame,
+            text="\u22ef",
+            width=34,
+            height=28,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            fg_color=self.colors["surface"],
+            hover_color=self.colors["bg"],
+            text_color=self.colors["text_secondary"],
+            border_width=1,
+            border_color=self.colors["border"],
+            command=self._show_overflow_menu,
+        )
+        self.overflow_btn.pack(side="left", padx=(8, 0), pady=10)
 
         # ========== CONTENT (Expandable) ==========
         content = ctk.CTkFrame(self.card, fg_color="transparent")
@@ -455,54 +405,6 @@ class PromptEditor(ctk.CTkFrame):
         )
         self.state_label.pack(side="left", pady=6)
 
-        self.format_btn = ctk.CTkButton(
-            left_footer,
-            text="Format",
-            width=70,
-            height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
-            command=self._show_format_menu,
-        )
-        self.format_btn.pack(side="left", padx=(10, 0), pady=6)
-
-        self.version_btn = ctk.CTkButton(
-            left_footer,
-            text="Version +",
-            width=90,
-            height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
-            command=self._on_version_bump,
-        )
-        self.version_btn.pack(side="left", padx=(8, 0), pady=6)
-
-        self.history_btn = ctk.CTkButton(
-            left_footer,
-            text="History",
-            width=80,
-            height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
-            command=self._on_show_history,
-        )
-        self.history_btn.pack(side="left", padx=(8, 0), pady=6)
-
         # Save button
         self.save_btn = ctk.CTkButton(
             footer_inner, text="Save", width=90, height=36, corner_radius=10,
@@ -512,15 +414,6 @@ class PromptEditor(ctk.CTkFrame):
         )
         self.save_btn.pack(side="right", pady=12)
 
-        # Delete button
-        self.delete_btn = ctk.CTkButton(
-            footer_inner, text="Delete", width=70, height=36, corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=13),
-            fg_color="transparent", hover_color="#FEE2E2",
-            text_color=colors["danger"],
-            command=self._on_delete,
-        )
-        self.delete_btn.pack(side="right", padx=(0, 8), pady=12)
         self._apply_preview_layout()
         self._refresh_preview()
 
@@ -630,12 +523,12 @@ class PromptEditor(ctk.CTkFrame):
 
     def _update_pin_button(self):
         if not self.current_prompt:
-            self.pin_btn.configure(text="\u2606", text_color=self.colors["text_muted"])
+            self._pin_symbol = "\u2606"
             return
         if self.current_prompt.pinned:
-            self.pin_btn.configure(text="\u2605", text_color=self.colors["accent"])
+            self._pin_symbol = "\u2605"
         else:
-            self.pin_btn.configure(text="\u2606", text_color=self.colors["text_muted"])
+            self._pin_symbol = "\u2606"
 
     def _update_state_label(self):
         if self.current_prompt:
@@ -702,6 +595,16 @@ class PromptEditor(ctk.CTkFrame):
             return
         self.on_copy(content)
 
+    def _open_in_selected_ai(self):
+        provider = (self.ai_provider_var.get() or "Gemini").strip().lower()
+        provider_map = {
+            "gemini": "gemini",
+            "gpt": "chatgpt",
+            "chatgpt": "chatgpt",
+            "grok": "grok",
+        }
+        self._test_in_ai(provider_map.get(provider, "gemini"))
+
     def _on_toggle_pin(self):
         if not self.current_prompt:
             return
@@ -725,16 +628,37 @@ class PromptEditor(ctk.CTkFrame):
         self.clipboard_append(content)
         self.on_toast(f"Copied as {label}")
 
-    def _show_copy_as_menu(self):
+    def _show_overflow_menu(self):
+        menu = tk.Menu(self, tearoff=0)
+        pin_label = "Unpin prompt" if self.current_prompt and self.current_prompt.pinned else "Pin prompt"
+        menu.add_command(label=pin_label, command=self._on_toggle_pin)
+        menu.add_separator()
+        menu.add_command(label="Copy as...", command=lambda: self._show_copy_as_menu(anchor=self.overflow_btn))
+        menu.add_command(label="Insert snippet", command=self.open_snippet_picker)
+        menu.add_command(label="Fill variables", command=self.fill_variables)
+        menu.add_separator()
+        menu.add_command(label="Format...", command=lambda: self._show_format_menu(anchor=self.overflow_btn))
+        menu.add_command(label="Version +", command=self._on_version_bump)
+        menu.add_command(label="History", command=self._on_show_history)
+        menu.add_separator()
+        menu.add_command(label="Delete", command=self._on_delete)
+        x = self.overflow_btn.winfo_rootx()
+        y = self.overflow_btn.winfo_rooty() + self.overflow_btn.winfo_height()
+        menu.tk_popup(x, y)
+        menu.grab_release()
+
+    def _show_copy_as_menu(self, anchor=None):
         if self._copy_as_menu is None:
             menu = tk.Menu(self, tearoff=0)
             menu.add_command(label="Plain text", command=lambda: self._copy_as("plain"))
             menu.add_command(label="Markdown code block", command=lambda: self._copy_as("markdown"))
             menu.add_command(label="JSON object", command=lambda: self._copy_as("json"))
             self._copy_as_menu = menu
-        x = self.copy_as_btn.winfo_rootx()
-        y = self.copy_as_btn.winfo_rooty() + self.copy_as_btn.winfo_height()
+        anchor_widget = anchor or self.overflow_btn
+        x = anchor_widget.winfo_rootx()
+        y = anchor_widget.winfo_rooty() + anchor_widget.winfo_height()
         self._copy_as_menu.tk_popup(x, y)
+        self._copy_as_menu.grab_release()
 
     def _copy_as(self, mode: str):
         content = self._get_current_content()
@@ -804,15 +728,17 @@ class PromptEditor(ctk.CTkFrame):
 
         VariableInputDialog(self, variables=placeholders, on_submit=handle, colors=self.colors)
 
-    def _show_format_menu(self):
+    def _show_format_menu(self, anchor=None):
         if self._format_menu is None:
             menu = tk.Menu(self, tearoff=0)
             menu.add_command(label="Trim trailing spaces", command=self._trim_trailing_spaces)
             menu.add_command(label="Normalize line endings (LF)", command=self._normalize_line_endings)
             self._format_menu = menu
-        x = self.format_btn.winfo_rootx()
-        y = self.format_btn.winfo_rooty() + self.format_btn.winfo_height()
+        anchor_widget = anchor or self.overflow_btn
+        x = anchor_widget.winfo_rootx()
+        y = anchor_widget.winfo_rooty() + anchor_widget.winfo_height()
         self._format_menu.tk_popup(x, y)
+        self._format_menu.grab_release()
 
     def _set_content(self, content: str):
         self._set_current_content(content)
