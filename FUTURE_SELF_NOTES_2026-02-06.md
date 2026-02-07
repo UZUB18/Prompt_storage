@@ -1,60 +1,75 @@
-# Future-self notes (Feb 6, 2026)
+# Future-self notes (iterative timeline)
 
-Quick summary of what was implemented in this session.
+Quick history in clear step order.
 
-## Main feature work
+## Day 1 — Feb 6, 2026 (Core throughput upgrades)
 
-- Added a **throughput-focused editor/list upgrade** foundation.
-- Extended **command palette** to support:
-  - prompt search/open
-  - action execution (new prompt, duplicate, focus search, snippets, variable fill, preview toggle, token mode toggle, pin toggle)
-- Added **snippet workflow**:
-  - new `SnippetPickerDialog`
-  - insert snippet at caret or replace selection
-  - wired to button, shortcut (`Ctrl+I`), and command palette
-- Added **variable fill workflow**:
-  - detects `{variable}` placeholders
-  - uses `VariableInputDialog`
-  - replaces placeholders while leaving empty ones unchanged
-- Added **split preview toggle** with persistence in config
-  - button + shortcut (`Ctrl+Shift+M`)
-  - persisted with `preview_split_enabled`
+### Step 1 — Command palette expansion
+- Added prompt search/open in palette.
+- Added action execution: new prompt, duplicate, focus search, snippets, variable fill, preview toggle, token mode toggle, pin toggle.
 
-## Draft autosave + recovery
+### Step 2 — Snippet workflow
+- Added `SnippetPickerDialog`.
+- Insert snippet at caret or replace selection.
+- Wired to button, `Ctrl+I`, and command palette.
 
-- Added lightweight draft storage:
-  - new `drafts.json` in storage data dir
-  - methods: `load_drafts`, `load_draft`, `save_draft`, `clear_draft`
-- Editor now autosaves draft (debounced) while typing.
-- Selecting a prompt restores saved draft if present.
-- Explicit save/delete clears that prompt's draft.
+### Step 3 — Variable fill workflow
+- Detects `{variable}` placeholders.
+- Uses `VariableInputDialog`.
+- Replaces placeholders while leaving empty values unchanged.
 
-## Token count mode
+### Step 4 — Split preview toggle
+- Added preview split toggle in UI.
+- Added shortcut `Ctrl+Shift+M`.
+- Persisted with `preview_split_enabled`.
 
-- Token/word/line count area now supports throughput token mode behavior.
-- Added config for token mode:
+### Step 5 — Draft autosave + recovery
+- Added `drafts.json` support in storage.
+- Methods: `load_drafts`, `load_draft`, `save_draft`, `clear_draft`.
+- Debounced draft autosave while typing.
+- Restore draft on prompt select.
+- Clear draft on explicit save/delete.
+
+### Step 6 — Token count mode
+- Added token mode config:
   - `approx` (default)
-  - `exact` (optional via `PROMPTLIB_TOKENIZER=tiktoken` and dependency availability)
+  - `exact` (optional with `PROMPTLIB_TOKENIZER=tiktoken` + dependency)
 
-## Markdown reading preview improvement
+### Step 7 — Markdown preview readability
+- Improved rendering for headings, bullets, numbered lists, quotes.
+- Added inline bold/italic/code rendering.
+- Added fenced code block rendering.
+- Render links as label + URL text.
 
-- Reworked preview rendering to display human-readable styled text:
-  - headings, bullets, numbered lists, block quotes
-  - inline bold/italic/code
-  - fenced code blocks
-  - links rendered as label + URL text
+### Step 8 — Tag chip recursion crash fix
+- Fixed `RecursionError` in `TagChipsInput` layout.
+- Added layout re-entry guard.
+- Added debounced/scheduled relayout.
+- Added width-change gating.
+- Forced relayout only on add/remove/clear events.
 
-## Crash fix performed
+---
 
-- Fixed a `RecursionError` in tag chip layout (`TagChipsInput`) caused by configure/layout feedback loops.
-- Added:
-  - layout re-entry guard
-  - scheduled/debounced layout
-  - width-change gating
-  - forced relayout on tag add/remove/clear only
+## Day 2 — Feb 7, 2026 (UI polish iteration)
 
-## Files touched
+### Step 9 — Sidebar filter menu responsiveness (`src/app.py`)
+- Made filter chips shrink correctly at small widths.
+- Added adaptive label modes: `full` / `compact` / `tight`.
+- Reduced overlap across window sizes and UI scales.
 
+### Step 10 — Tags input polish (`src/components/tag_chips.py`)
+- Fixed hidden/clipped placeholder behavior.
+- Improved text centering/readability (font/height/placeholder color).
+- Entry now expands to remaining row width while preserving chip wrap.
+
+### Step 11 — Prompt editor form layout redesign (`src/components/prompt_editor.py`)
+- Name field moved to full-width top row and made larger.
+- Category + Tags moved below (Category left, Tags right).
+- Normalized tags placeholder text to `...`.
+
+---
+
+## Files touched (combined)
 - `src/app.py`
 - `src/components/dialogs.py`
 - `src/components/prompt_editor.py`
@@ -62,11 +77,10 @@ Quick summary of what was implemented in this session.
 - `src/config.py`
 - `src/storage.py`
 
-## Notes for next pass
-
-- Clean up duplicate legacy methods in `prompt_editor.py` now that override-style additions exist.
-- Consider moving snippet definitions from in-code list to persisted storage/config.
-- Add small regression checks around:
+## Next-pass checklist
+- Clean duplicate legacy methods in `prompt_editor.py`.
+- Consider moving snippet definitions from hardcoded list to persistent config/storage.
+- Add regression checks for:
   - prompt select + draft restore
   - snippet insert
   - variable fill

@@ -124,7 +124,10 @@ class PromptLibraryApp(ctk.CTk):
         self.filter_buttons: dict[str, ctk.CTkButton] = {}
         self.filter_map: dict[str, Optional[str]] = {}
         self.filter_labels: dict[str, str] = {}
+        self.filter_compact_labels: dict[str, str] = {}
+        self.filter_tight_labels: dict[str, str] = {}
         self.filter_order: list[str] = []
+        self._filter_label_mode = "full"
         self._command_palette: Optional[CommandPaletteDialog] = None
         self.preview_split_enabled = get_preview_split_enabled(False)
         self.token_count_mode = get_token_count_mode("approx")
@@ -318,9 +321,11 @@ class PromptLibraryApp(ctk.CTk):
             border_width=1,
             border_color=self.COLORS["border"],
         )
+        self.filter_container = filter_container
         filter_container.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 12))
         filter_container.grid_propagate(False)
-        filter_container.grid_columnconfigure(tuple(range(6)), weight=1)
+        for idx in range(6):
+            filter_container.grid_columnconfigure(idx, weight=1, uniform="filters")
 
         self.filter_map = {
             "Pinned": "__pinned__",
@@ -338,6 +343,22 @@ class PromptLibraryApp(ctk.CTk):
             "Template": "Template",
             "Other": "Other",
         }
+        self.filter_compact_labels = {
+            "Pinned": "Pin",
+            "All": "All",
+            "Persona": "Persona",
+            "System": "System",
+            "Template": "Templ",
+            "Other": "Other",
+        }
+        self.filter_tight_labels = {
+            "Pinned": "P",
+            "All": "A",
+            "Persona": "Per",
+            "System": "Sys",
+            "Template": "Tmp",
+            "Other": "Oth",
+        }
         self.filter_order = ["Pinned", "All", "Persona", "System", "Template", "Other"]
 
         for i, key in enumerate(self.filter_order):
@@ -346,6 +367,7 @@ class PromptLibraryApp(ctk.CTk):
             btn = ctk.CTkButton(
                 filter_container,
                 text=label,
+                width=1,
                 height=28,
                 corner_radius=6,
                 font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold" if is_active else "normal"),
@@ -357,6 +379,7 @@ class PromptLibraryApp(ctk.CTk):
             )
             btn.grid(row=0, column=i, sticky="ew", padx=2, pady=2)
             self.filter_buttons[key] = btn
+        self.filter_container.bind("<Configure>", self._on_filter_container_resize)
 
         # Row 3: Sort options
         sort_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
@@ -1038,8 +1061,31 @@ class PromptLibraryApp(ctk.CTk):
                 counts["Other"] += 1
 
         for key, btn in self.filter_buttons.items():
-            label = self.filter_labels.get(key, key)
-            btn.configure(text=f"{label} ({counts.get(key, 0)})")
+            label = self._filter_label_for_mode(key)
+            count = counts.get(key, 0)
+            if self._filter_label_mode == "tight":
+                btn.configure(text=f"{label} {count}")
+            else:
+                btn.configure(text=f"{label} ({count})")
+
+    def _filter_label_for_mode(self, key: str) -> str:
+        if self._filter_label_mode == "tight":
+            return self.filter_tight_labels.get(key, self.filter_labels.get(key, key))
+        if self._filter_label_mode == "compact":
+            return self.filter_compact_labels.get(key, self.filter_labels.get(key, key))
+        return self.filter_labels.get(key, key)
+
+    def _on_filter_container_resize(self, event):
+        per_button_width = max(1, int(event.width / max(1, len(self.filter_order))))
+        if per_button_width < 74:
+            label_mode = "tight"
+        elif per_button_width < 105:
+            label_mode = "compact"
+        else:
+            label_mode = "full"
+        if label_mode != self._filter_label_mode:
+            self._filter_label_mode = label_mode
+            self._update_filter_counts()
 
     def _on_prompt_select(self, prompt: Prompt):
         """Handle prompt selection."""

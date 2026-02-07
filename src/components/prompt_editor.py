@@ -228,18 +228,16 @@ class PromptEditor(ctk.CTkFrame):
         content.grid(row=2, column=0, sticky="nsew", padx=24, pady=12)
         
         # Grid layout for form - content expands
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_columnconfigure(1, weight=1)
-        content.grid_columnconfigure(2, weight=1)
-        content.grid_rowconfigure(0, weight=0)  # Name/Category row
-        content.grid_rowconfigure(1, weight=0)  # Tags row
+        content.grid_columnconfigure(0, weight=0)  # Category column
+        content.grid_columnconfigure(1, weight=1)  # Tags + content column
+        content.grid_rowconfigure(0, weight=0)  # Name row
+        content.grid_rowconfigure(1, weight=0)  # Category + tags row
         content.grid_rowconfigure(2, weight=0)  # Content label
         content.grid_rowconfigure(3, weight=1)  # Content text (EXPANDS!)
 
-        # Row 0: Name (left) + Category (right)
-        # Name
+        # Row 0: Name (full width)
         name_frame = ctk.CTkFrame(content, fg_color="transparent")
-        name_frame.grid(row=0, column=0, sticky="ew", padx=(0, 8), pady=(0, 12))
+        name_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
         
         ctk.CTkLabel(
             name_frame, text="NAME",
@@ -248,17 +246,17 @@ class PromptEditor(ctk.CTkFrame):
         ).pack(anchor="w", pady=(0, 4))
         
         self.name_entry = ctk.CTkEntry(
-            name_frame, height=38,
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            name_frame, height=42,
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             fg_color=colors["surface"], border_color=colors["border"],
-            border_width=1, corner_radius=10, text_color=colors["text_primary"],
+            border_width=1, corner_radius=12, text_color=colors["text_primary"],
         )
         self.name_entry.pack(fill="x")
         self.name_entry.bind("<KeyRelease>", self._on_field_change)
 
-        # Category
+        # Row 1 (left): Category
         cat_frame = ctk.CTkFrame(content, fg_color="transparent")
-        cat_frame.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 12))
+        cat_frame.grid(row=1, column=0, sticky="ew", padx=(0, 10), pady=(0, 12))
         
         ctk.CTkLabel(
             cat_frame, text="CATEGORY",
@@ -294,9 +292,9 @@ class PromptEditor(ctk.CTkFrame):
         )
         self.category_dropdown.pack(fill="x", padx=1, pady=1)
 
-        # Row 1: Tags (spans both columns)
+        # Row 1 (right): Tags
         tags_frame = ctk.CTkFrame(content, fg_color="transparent")
-        tags_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        tags_frame.grid(row=1, column=1, sticky="ew", pady=(0, 12))
         
         ctk.CTkLabel(
             tags_frame, text="TAGS",
@@ -308,7 +306,7 @@ class PromptEditor(ctk.CTkFrame):
             tags_frame,
             colors=colors,
             on_change=self._on_field_change,
-            placeholder_text="Add tags (comma or Enter)…",
+            placeholder_text="Add tags (comma or Enter)...",
         )
         self.tags_input.pack(fill="x")
 

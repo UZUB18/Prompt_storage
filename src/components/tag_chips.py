@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import re
-import customtkinter as ctk
 from typing import Callable, List, Optional
+
+import customtkinter as ctk
 
 
 class TagChip(ctk.CTkFrame):
@@ -56,12 +57,14 @@ class TagChip(ctk.CTkFrame):
 class TagChipsInput(ctk.CTkFrame):
     """Multi-tag input with removable chips."""
 
+    _MIN_ENTRY_WIDTH = 180
+
     def __init__(
         self,
         master,
         colors: dict,
         on_change: Optional[Callable[[], None]] = None,
-        placeholder_text: str = "Add tags…",
+        placeholder_text: str = "Add tags...",
         **kwargs,
     ):
         super().__init__(
@@ -87,12 +90,14 @@ class TagChipsInput(ctk.CTkFrame):
 
         self.entry = ctk.CTkEntry(
             self.inner,
-            height=28,
+            height=30,
             fg_color=colors["surface"],
             border_width=0,
             text_color=colors["text_primary"],
+            placeholder_text_color=colors["text_muted"],
+            font=ctk.CTkFont(family="Segoe UI", size=13),
             placeholder_text=placeholder_text,
-            width=120,
+            width=self._MIN_ENTRY_WIDTH,
         )
         self.entry.bind("<Return>", self._on_return)
         self.entry.bind("<KP_Enter>", self._on_return)
@@ -215,13 +220,15 @@ class TagChipsInput(ctk.CTkFrame):
 
             for widget in widgets:
                 widget.grid_forget()
+            for idx in range(12):
+                self.inner.grid_columnconfigure(idx, weight=0)
 
             row = 0
             col = 0
             x = 0
             pad_x = 6
             pad_y = 6
-            available = max_width - pad_x
+            available = max(40, max_width - pad_x)
 
             for widget in widgets:
                 widget.update_idletasks()
@@ -230,7 +237,16 @@ class TagChipsInput(ctk.CTkFrame):
                     row += 1
                     col = 0
                     x = 0
-                widget.grid(row=row, column=col, padx=(0, pad_x), pady=(0, pad_y), sticky="w")
+
+                if widget is self.entry:
+                    remaining = max(self._MIN_ENTRY_WIDTH, available - x)
+                    widget.configure(width=max(40, remaining))
+                    self.inner.grid_columnconfigure(col, weight=1)
+                    sticky = "ew"
+                else:
+                    sticky = "w"
+
+                widget.grid(row=row, column=col, padx=(0, pad_x), pady=(0, pad_y), sticky=sticky)
                 x += width + pad_x
                 col += 1
         finally:
