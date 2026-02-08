@@ -7,7 +7,160 @@ from ..models import Prompt, Category
 from .tag_chips import TagChipsInput
 
 
-class NewPromptDialog(ctk.CTkToplevel):
+class ModalDialog(ctk.CTkToplevel):
+    """Shared modal behavior for consistent popup feel."""
+
+    def _init_modal(
+        self,
+        master,
+        colors: Dict[str, str],
+        *,
+        title: str,
+        width: int,
+        height: int,
+        resizable: tuple[bool, bool] = (False, False),
+        fade_in: bool = True,
+    ):
+        self.colors = colors
+        self.title(title)
+        self.geometry(f"{width}x{height}")
+        self.resizable(resizable[0], resizable[1])
+        self.configure(fg_color=colors["bg"])
+        self._fade_job = None
+        self._alpha_supported = False
+        if fade_in:
+            try:
+                self.attributes("-alpha", 0.0)
+                self._alpha_supported = True
+            except Exception:
+                self._alpha_supported = False
+
+        self.transient(master)
+        self.grab_set()
+        self._center_on_screen(width, height)
+        self._start_fade_in()
+
+    def _center_on_screen(self, width: int, height: int, margin: int = 40):
+        screen_w = int(self.winfo_screenwidth())
+        screen_h = int(self.winfo_screenheight())
+        width = max(320, min(width, max(320, screen_w - margin)))
+        height = max(220, min(height, max(220, screen_h - margin)))
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _auto_size_and_center(self, min_width: int = 560, min_height: int = 560, margin: int = 40):
+        self.update_idletasks()
+        req_w = max(min_width, int(self.winfo_reqwidth()))
+        req_h = max(min_height, int(self.winfo_reqheight()))
+        screen_w = int(self.winfo_screenwidth())
+        screen_h = int(self.winfo_screenheight())
+        max_w = max(360, screen_w - margin)
+        max_h = max(320, screen_h - margin)
+        width = min(req_w, max_w)
+        height = min(req_h, max_h)
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _start_fade_in(self):
+        if not getattr(self, "_alpha_supported", False):
+            return
+        self._animate_alpha(0.0)
+
+    def _animate_alpha(self, value: float):
+        if not self.winfo_exists():
+            return
+        next_value = min(1.0, value + 0.14)
+        try:
+            self.attributes("-alpha", next_value)
+        except Exception:
+            return
+        if next_value < 1.0:
+            self._fade_job = self.after(16, lambda: self._animate_alpha(next_value))
+
+    def _btn_secondary(
+        self,
+        parent,
+        *,
+        text: str,
+        command: Callable,
+        width: int = 96,
+        height: int = 38,
+    ) -> ctk.CTkButton:
+        return ctk.CTkButton(
+            parent,
+            text=text,
+            width=width,
+            height=height,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="transparent",
+            hover_color=self.colors["border"],
+            text_color=self.colors["text_secondary"],
+            border_width=1,
+            border_color=self.colors["border"],
+            command=command,
+        )
+
+    def _btn_primary(
+        self,
+        parent,
+        *,
+        text: str,
+        command: Callable,
+        width: int = 96,
+        height: int = 38,
+    ) -> ctk.CTkButton:
+        return ctk.CTkButton(
+            parent,
+            text=text,
+            width=width,
+            height=height,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+            fg_color=self.colors["accent"],
+            hover_color=self.colors["accent_hover"],
+            command=command,
+        )
+
+    def _btn_danger(
+        self,
+        parent,
+        *,
+        text: str,
+        command: Callable,
+        width: int = 96,
+        height: int = 38,
+    ) -> ctk.CTkButton:
+        hover = "#3B1F24" if self.colors.get("bg", "").lower().startswith("#0") else "#FEE2E2"
+        return ctk.CTkButton(
+            parent,
+            text=text,
+            width=width,
+            height=height,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="transparent",
+            hover_color=hover,
+            text_color=self.colors["danger"],
+            border_width=1,
+            border_color=self.colors["border"],
+            command=command,
+        )
+
+    def destroy(self):
+        fade_job = getattr(self, "_fade_job", None)
+        if fade_job is not None:
+            try:
+                self.after_cancel(fade_job)
+            except Exception:
+                pass
+            self._fade_job = None
+        super().destroy()
+
+
+class NewPromptDialog(ModalDialog):
     """Dialog for creating a new prompt with Apple-style design."""
 
     def __init__(
@@ -19,15 +172,18 @@ class NewPromptDialog(ctk.CTkToplevel):
     ):
         super().__init__(master, **kwargs)
         self.on_create = on_create
-        self.colors = colors
+        self.custom_category = ""
+        self._suppress_category_prompt = False
 
-        self.title("New Prompt")
-        self.geometry("520x680")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
+        self._init_modal(
+            master,
+            colors,
+            title="New Prompt",
+            width=560,
+            height=640,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         # Card container
         card = ctk.CTkFrame(
@@ -35,19 +191,19 @@ class NewPromptDialog(ctk.CTkToplevel):
             fg_color=colors["surface"],
             corner_radius=16,
         )
-        card.pack(fill="both", expand=True, padx=20, pady=20)
+        card.pack(fill="both", expand=True, padx=14, pady=14)
 
         content = ctk.CTkFrame(card, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=28, pady=28)
+        content.pack(fill="both", expand=True, padx=22, pady=20)
 
         # Title
         title = ctk.CTkLabel(
             content,
             text="Create New Prompt",
-            font=ctk.CTkFont(family="Segoe UI", size=22, weight="bold"),
+            font=ctk.CTkFont(family="Segoe UI", size=20, weight="bold"),
             text_color=colors["text_primary"],
         )
-        title.pack(anchor="w", pady=(0, 24))
+        title.pack(anchor="w", pady=(0, 16))
 
         # Name field
         name_label = ctk.CTkLabel(
@@ -57,11 +213,11 @@ class NewPromptDialog(ctk.CTkToplevel):
             text_color=colors["text_muted"],
             anchor="w",
         )
-        name_label.pack(fill="x", pady=(0, 8), padx=4)
+        name_label.pack(fill="x", pady=(0, 6), padx=4)
 
         self.name_entry = ctk.CTkEntry(
             content,
-            height=44,
+            height=42,
             font=ctk.CTkFont(family="Segoe UI", size=14),
             fg_color=colors["surface"],
             border_color=colors["border"],
@@ -70,7 +226,7 @@ class NewPromptDialog(ctk.CTkToplevel):
             text_color=colors["text_primary"],
             placeholder_text="Enter prompt name...",
         )
-        self.name_entry.pack(fill="x", pady=(0, 20))
+        self.name_entry.pack(fill="x", pady=(0, 14))
 
         # Category field
         cat_label = ctk.CTkLabel(
@@ -80,23 +236,25 @@ class NewPromptDialog(ctk.CTkToplevel):
             text_color=colors["text_muted"],
             anchor="w",
         )
-        cat_label.pack(fill="x", pady=(0, 8), padx=4)
+        cat_label.pack(fill="x", pady=(0, 6), padx=4)
 
         self.category_var = ctk.StringVar(value=Category.OTHER.value)
         # CTkOptionMenu doesn't render an entry-like border by default; wrap it.
         cat_outer = ctk.CTkFrame(
             content,
-            fg_color=colors["surface"],
+            fg_color=colors.get("input", colors["surface"]),
             corner_radius=12,
             border_width=1,
             border_color=colors["border"],
+            height=46,
         )
-        cat_outer.pack(fill="x", pady=(0, 20))
+        cat_outer.pack(fill="x", pady=(0, 6))
+        cat_outer.pack_propagate(False)
         self.category_dropdown = ctk.CTkOptionMenu(
             cat_outer,
             values=[c.value for c in Category],
             variable=self.category_var,
-            height=42,
+            height=36,
             font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
             fg_color=colors["surface"],
             text_color=colors["text_primary"],
@@ -105,9 +263,20 @@ class NewPromptDialog(ctk.CTkToplevel):
             dropdown_fg_color=colors["surface"],
             dropdown_text_color=colors["text_primary"],
             dropdown_hover_color=colors["accent_glow"],
-            corner_radius=11,
+            corner_radius=10,
+            command=self._on_category_changed,
         )
-        self.category_dropdown.pack(fill="x", padx=1, pady=1)
+        self.category_dropdown.pack(fill="both", expand=True, padx=2, pady=2)
+
+        self.custom_category_label = ctk.CTkLabel(
+            content,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color=colors["text_muted"],
+            anchor="w",
+        )
+        self.custom_category_label.pack(fill="x", pady=(0, 10), padx=4)
+        self._update_custom_category_label()
 
         # Tags field
         tags_label = ctk.CTkLabel(
@@ -117,14 +286,14 @@ class NewPromptDialog(ctk.CTkToplevel):
             text_color=colors["text_muted"],
             anchor="w",
         )
-        tags_label.pack(fill="x", pady=(0, 8), padx=4)
+        tags_label.pack(fill="x", pady=(0, 6), padx=4)
 
         self.tags_input = TagChipsInput(
             content,
             colors=colors,
             placeholder_text="Add tags (comma or Enter)...",
         )
-        self.tags_input.pack(fill="x", pady=(0, 20))
+        self.tags_input.pack(fill="x", pady=(0, 14))
 
         # Content field
         content_label = ctk.CTkLabel(
@@ -134,11 +303,11 @@ class NewPromptDialog(ctk.CTkToplevel):
             text_color=colors["text_muted"],
             anchor="w",
         )
-        content_label.pack(fill="x", pady=(0, 8), padx=4)
+        content_label.pack(fill="x", pady=(0, 6), padx=4)
 
         self.content_text = ctk.CTkTextbox(
             content,
-            height=140,
+            height=160,
             font=ctk.CTkFont(family="Consolas", size=13),
             fg_color=colors["surface"],
             text_color=colors["text_primary"],
@@ -147,41 +316,19 @@ class NewPromptDialog(ctk.CTkToplevel):
             corner_radius=12,
             wrap="word",
         )
-        self.content_text.pack(fill="x", pady=(0, 24))
+        self.content_text.pack(fill="x", pady=(0, 16))
 
         # Buttons
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
         btn_frame.pack(fill="x")
 
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text="Cancel",
-            width=100,
-            height=44,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=14),
-            fg_color="transparent",
-            hover_color=colors["border"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self.destroy,
-        )
+        cancel_btn = self._btn_secondary(btn_frame, text="Cancel", command=self.destroy, width=100, height=40)
         cancel_btn.pack(side="left")
 
-        create_btn = ctk.CTkButton(
-            btn_frame,
-            text="Create",
-            width=100,
-            height=44,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            fg_color=colors["accent"],
-            hover_color=colors["accent_hover"],
-            command=self._on_create,
-        )
+        create_btn = self._btn_primary(btn_frame, text="Create", command=self._on_create, width=100, height=40)
         create_btn.pack(side="right")
 
+        self._auto_size_and_center(min_width=560, min_height=560, margin=40)
         self.after(100, lambda: self.name_entry.focus())
 
     def _on_create(self):
@@ -197,13 +344,50 @@ class NewPromptDialog(ctk.CTkToplevel):
             content=content,
             category=Category(self.category_var.get()),
             tags=self.tags_input.get_tags(),
+            custom_category=self.custom_category.strip()
+            if self.category_var.get() == Category.OTHER.value
+            else "",
         )
 
         self.on_create(prompt)
         self.destroy()
 
+    def _on_category_changed(self, selected: str):
+        if self._suppress_category_prompt:
+            return
+        if selected != Category.OTHER.value:
+            self.custom_category = ""
+            self._update_custom_category_label()
+            return
+        self._prompt_custom_category()
 
-class VariableInputDialog(ctk.CTkToplevel):
+    def _prompt_custom_category(self):
+        previous = self.custom_category
+        dialog = TagInputDialog(
+            self,
+            colors=self.colors,
+            title="Custom category",
+            confirm_text="Use",
+        )
+        self.wait_window(dialog)
+        if dialog.result is None:
+            self.custom_category = previous
+            return
+        self.custom_category = (dialog.result or "").strip()
+        self._update_custom_category_label()
+
+    def _update_custom_category_label(self):
+        if self.category_var.get() == Category.OTHER.value and self.custom_category:
+            self.custom_category_label.configure(text=f"Custom: {self.custom_category}")
+            self.custom_category_label.pack_configure(pady=(0, 10))
+        elif self.category_var.get() == Category.OTHER.value:
+            self.custom_category_label.configure(text="Custom: (click Other to set)")
+            self.custom_category_label.pack_configure(pady=(0, 10))
+        else:
+            self.custom_category_label.configure(text="")
+            self.custom_category_label.pack_configure(pady=(0, 0))
+
+class VariableInputDialog(ModalDialog):
     """Dialog for entering values for prompt variables."""
 
     def __init__(
@@ -216,24 +400,19 @@ class VariableInputDialog(ctk.CTkToplevel):
     ):
         super().__init__(master, **kwargs)
         self.on_submit = on_submit
-        self.colors = colors
         self.variables = variables
         self.entries = {}
 
-        self.title("Variables Required")
         height = min(600, 220 + len(variables) * 90)
-        self.geometry(f"450x{height}")
-        self.resizable(True, True)
-        self.configure(fg_color=colors["bg"])
-        
-        # Center
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - 450) // 2
-        y = (self.winfo_screenheight() - height) // 2
-        self.geometry(f"+{x}+{y}")
-
-        self.transient(master)
-        self.grab_set()
+        self._init_modal(
+            master,
+            colors,
+            title="Variables Required",
+            width=450,
+            height=height,
+            resizable=(True, True),
+            fade_in=True,
+        )
 
         # Card
         card = ctk.CTkFrame(
@@ -303,33 +482,10 @@ class VariableInputDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(card, fg_color="transparent")
         btn_frame.pack(fill="x", padx=28, pady=28)
 
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text="Cancel",
-            width=100,
-            height=44,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=14),
-            fg_color="transparent",
-            hover_color=colors["border"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self.destroy,
-        )
+        cancel_btn = self._btn_secondary(btn_frame, text="Cancel", command=self.destroy, width=100, height=40)
         cancel_btn.pack(side="left")
 
-        submit_btn = ctk.CTkButton(
-            btn_frame,
-            text="Insert",
-            width=100,
-            height=44,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            fg_color=colors["accent"],
-            hover_color=colors["accent_hover"],
-            command=self._on_submit,
-        )
+        submit_btn = self._btn_primary(btn_frame, text="Insert", command=self._on_submit, width=100, height=40)
         submit_btn.pack(side="right")
         
         if first_entry:
@@ -349,7 +505,7 @@ class VariableInputDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-class SnippetPickerDialog(ctk.CTkToplevel):
+class SnippetPickerDialog(ModalDialog):
     """Dialog for searching and inserting snippets."""
 
     def __init__(
@@ -361,27 +517,21 @@ class SnippetPickerDialog(ctk.CTkToplevel):
         **kwargs,
     ):
         super().__init__(master, **kwargs)
-        self.colors = colors
         self.on_insert = on_insert
         self.all_snippets = snippets
         self.filtered: List[dict] = []
         self.result_buttons: List[ctk.CTkButton] = []
         self.active_index = 0
 
-        self.title("Insert Snippet")
-        self.geometry("620x520")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
-
-        self.update_idletasks()
-        width = 620
-        height = 520
-        x = (self.winfo_screenwidth() - width) // 2
-        y = (self.winfo_screenheight() - height) // 2
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        self._init_modal(
+            master,
+            colors,
+            title="Insert Snippet",
+            width=620,
+            height=520,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
         card.pack(fill="both", expand=True, padx=20, pady=20)
@@ -531,26 +681,22 @@ class SnippetPickerDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-class UnsavedChangesDialog(ctk.CTkToplevel):
+class UnsavedChangesDialog(ModalDialog):
     """Dialog for unsaved changes confirmation."""
 
     def __init__(self, master, colors: Dict[str, str], **kwargs):
         super().__init__(master, **kwargs)
-        self.colors = colors
         self.result = "cancel"
 
-        self.title("Unsaved Changes")
-        self.geometry("420x220")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
-
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - 420) // 2
-        y = (self.winfo_screenheight() - 220) // 2
-        self.geometry(f"+{x}+{y}")
+        self._init_modal(
+            master,
+            colors,
+            title="Unsaved Changes",
+            width=420,
+            height=220,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
         card.pack(fill="both", expand=True, padx=20, pady=20)
@@ -579,49 +725,13 @@ class UnsavedChangesDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
         btn_frame.pack(fill="x", side="bottom")
 
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text="Cancel",
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="transparent",
-            hover_color=colors["border"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self._on_cancel,
-        )
+        cancel_btn = self._btn_secondary(btn_frame, text="Cancel", command=self._on_cancel, width=90, height=36)
         cancel_btn.pack(side="left")
 
-        discard_btn = ctk.CTkButton(
-            btn_frame,
-            text="Discard",
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="transparent",
-            hover_color="#FEE2E2",
-            text_color=colors["danger"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self._on_discard,
-        )
+        discard_btn = self._btn_danger(btn_frame, text="Discard", command=self._on_discard, width=90, height=36)
         discard_btn.pack(side="left", padx=(8, 0))
 
-        save_btn = ctk.CTkButton(
-            btn_frame,
-            text="Save",
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            fg_color=colors["accent"],
-            hover_color=colors["accent_hover"],
-            command=self._on_save,
-        )
+        save_btn = self._btn_primary(btn_frame, text="Save", command=self._on_save, width=90, height=36)
         save_btn.pack(side="right")
 
         self.protocol("WM_DELETE_WINDOW", self._on_cancel)
@@ -639,26 +749,22 @@ class UnsavedChangesDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-class RenamePromptDialog(ctk.CTkToplevel):
+class RenamePromptDialog(ModalDialog):
     """Dialog for renaming a prompt."""
 
     def __init__(self, master, colors: Dict[str, str], current_name: str, **kwargs):
         super().__init__(master, **kwargs)
-        self.colors = colors
         self.result = None
 
-        self.title("Rename Prompt")
-        self.geometry("420x200")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
-
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - 420) // 2
-        y = (self.winfo_screenheight() - 200) // 2
-        self.geometry(f"+{x}+{y}")
+        self._init_modal(
+            master,
+            colors,
+            title="Rename Prompt",
+            width=420,
+            height=200,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
         card.pack(fill="both", expand=True, padx=20, pady=20)
@@ -690,33 +796,10 @@ class RenamePromptDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
         btn_frame.pack(fill="x")
 
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text="Cancel",
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="transparent",
-            hover_color=colors["border"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self._on_cancel,
-        )
+        cancel_btn = self._btn_secondary(btn_frame, text="Cancel", command=self._on_cancel, width=90, height=36)
         cancel_btn.pack(side="left")
 
-        save_btn = ctk.CTkButton(
-            btn_frame,
-            text="Save",
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            fg_color=colors["accent"],
-            hover_color=colors["accent_hover"],
-            command=self._on_save,
-        )
+        save_btn = self._btn_primary(btn_frame, text="Save", command=self._on_save, width=90, height=36)
         save_btn.pack(side="right")
 
         self.after(100, lambda: self.name_entry.focus())
@@ -734,7 +817,7 @@ class RenamePromptDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-class FindReplaceDialog(ctk.CTkToplevel):
+class FindReplaceDialog(ModalDialog):
     """Dialog for find/replace in the editor."""
 
     def __init__(
@@ -748,26 +831,22 @@ class FindReplaceDialog(ctk.CTkToplevel):
         **kwargs
     ):
         super().__init__(master, **kwargs)
-        self.colors = colors
         self.on_find = on_find
         self.on_replace = on_replace
         self.on_replace_all = on_replace_all
         self.show_replace = show_replace
 
-        self.title("Find" + (" & Replace" if show_replace else ""))
-        self.geometry("420x220" if show_replace else "420x170")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
-
-        self.update_idletasks()
         width = 420
         height = 220 if show_replace else 170
-        x = (self.winfo_screenwidth() - width) // 2
-        y = (self.winfo_screenheight() - height) // 2
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        self._init_modal(
+            master,
+            colors,
+            title="Find" + (" & Replace" if show_replace else ""),
+            width=width,
+            height=height,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
         card.pack(fill="both", expand=True, padx=20, pady=20)
@@ -820,66 +899,21 @@ class FindReplaceDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(4, 0))
 
-        find_btn = ctk.CTkButton(
-            btn_frame,
-            text="Find Next",
-            width=100,
-            height=32,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            fg_color=colors["accent"],
-            hover_color=colors["accent_hover"],
-            command=self._on_find,
-        )
+        find_btn = self._btn_primary(btn_frame, text="Find Next", command=self._on_find, width=100, height=32)
         find_btn.pack(side="left")
 
         if show_replace:
-            replace_btn = ctk.CTkButton(
-                btn_frame,
-                text="Replace",
-                width=90,
-                height=32,
-                corner_radius=8,
-                font=ctk.CTkFont(family="Segoe UI", size=12),
-                fg_color=colors["surface"],
-                hover_color=colors["border"],
-                text_color=colors["text_secondary"],
-                border_width=1,
-                border_color=colors["border"],
-                command=self._on_replace,
+            replace_btn = self._btn_secondary(
+                btn_frame, text="Replace", command=self._on_replace, width=90, height=32
             )
             replace_btn.pack(side="left", padx=(8, 0))
 
-            replace_all_btn = ctk.CTkButton(
-                btn_frame,
-                text="Replace All",
-                width=100,
-                height=32,
-                corner_radius=8,
-                font=ctk.CTkFont(family="Segoe UI", size=12),
-                fg_color=colors["surface"],
-                hover_color=colors["border"],
-                text_color=colors["text_secondary"],
-                border_width=1,
-                border_color=colors["border"],
-                command=self._on_replace_all,
+            replace_all_btn = self._btn_secondary(
+                btn_frame, text="Replace All", command=self._on_replace_all, width=100, height=32
             )
             replace_all_btn.pack(side="left", padx=(8, 0))
 
-        close_btn = ctk.CTkButton(
-            btn_frame,
-            text="Close",
-            width=80,
-            height=32,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="transparent",
-            hover_color=colors["border"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self.destroy,
-        )
+        close_btn = self._btn_secondary(btn_frame, text="Close", command=self.destroy, width=80, height=32)
         close_btn.pack(side="right")
 
         self.bind("<Escape>", lambda e: self.destroy())
@@ -911,7 +945,7 @@ class FindReplaceDialog(ctk.CTkToplevel):
         self.on_replace_all(term, replacement)
 
 
-class ConfirmDialog(ctk.CTkToplevel):
+class ConfirmDialog(ModalDialog):
     """Generic confirm dialog."""
 
     def __init__(
@@ -925,21 +959,17 @@ class ConfirmDialog(ctk.CTkToplevel):
         **kwargs
     ):
         super().__init__(master, **kwargs)
-        self.colors = colors
         self.result = "cancel"
 
-        self.title(title)
-        self.geometry("420x210")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
-
-        self.update_idletasks()
-        x = (self.winfo_screenwidth() - 420) // 2
-        y = (self.winfo_screenheight() - 210) // 2
-        self.geometry(f"+{x}+{y}")
+        self._init_modal(
+            master,
+            colors,
+            title=title,
+            width=420,
+            height=210,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
         card.pack(fill="both", expand=True, padx=20, pady=20)
@@ -968,32 +998,13 @@ class ConfirmDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
         btn_frame.pack(fill="x", side="bottom")
 
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text=cancel_text,
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="transparent",
-            hover_color=colors["border"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self._on_cancel,
+        cancel_btn = self._btn_secondary(
+            btn_frame, text=cancel_text, command=self._on_cancel, width=90, height=36
         )
         cancel_btn.pack(side="left")
 
-        confirm_btn = ctk.CTkButton(
-            btn_frame,
-            text=confirm_text,
-            width=110,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            fg_color=colors["accent"],
-            hover_color=colors["accent_hover"],
-            command=self._on_confirm,
+        confirm_btn = self._btn_primary(
+            btn_frame, text=confirm_text, command=self._on_confirm, width=110, height=36
         )
         confirm_btn.pack(side="right")
 
@@ -1009,7 +1020,7 @@ class ConfirmDialog(ctk.CTkToplevel):
         self.destroy()
 
 
-class CommandPaletteDialog(ctk.CTkToplevel):
+class CommandPaletteDialog(ModalDialog):
     """Command palette for prompts and quick actions."""
 
     def __init__(
@@ -1023,7 +1034,6 @@ class CommandPaletteDialog(ctk.CTkToplevel):
         **kwargs,
     ):
         super().__init__(master, **kwargs)
-        self.colors = colors
         self.on_select = on_select
         self.on_action = on_action
         self.all_prompts = prompts
@@ -1032,20 +1042,15 @@ class CommandPaletteDialog(ctk.CTkToplevel):
         self.result_buttons: List[ctk.CTkButton] = []
         self.active_index = 0
 
-        self.title("Command Palette")
-        self.geometry("600x540")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
-
-        self.update_idletasks()
-        width = 600
-        height = 540
-        x = (self.winfo_screenwidth() - width) // 2
-        y = (self.winfo_screenheight() - height) // 2
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        self._init_modal(
+            master,
+            colors,
+            title="Command Palette",
+            width=600,
+            height=540,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
         card.pack(fill="both", expand=True, padx=20, pady=20)
@@ -1250,7 +1255,7 @@ class CommandPaletteDialog(ctk.CTkToplevel):
         self.on_select(prompt)
         self.destroy()
 
-class PromptHistoryDialog(ctk.CTkToplevel):
+class PromptHistoryDialog(ModalDialog):
     """Dialog showing prompt version history."""
 
     def __init__(
@@ -1262,24 +1267,18 @@ class PromptHistoryDialog(ctk.CTkToplevel):
         **kwargs,
     ):
         super().__init__(master, **kwargs)
-        self.colors = colors
         self.prompt = prompt
         self.on_restore = on_restore
 
-        self.title("Version History")
-        self.geometry("620x520")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
-
-        self.update_idletasks()
-        width = 620
-        height = 520
-        x = (self.winfo_screenwidth() - width) // 2
-        y = (self.winfo_screenheight() - height) // 2
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        self._init_modal(
+            master,
+            colors,
+            title="Version History",
+            width=620,
+            height=520,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
         card.pack(fill="both", expand=True, padx=20, pady=20)
@@ -1289,7 +1288,7 @@ class PromptHistoryDialog(ctk.CTkToplevel):
 
         title = ctk.CTkLabel(
             content,
-            text=f"History Â· {prompt.name}",
+            text=f"History · {prompt.name}",
             font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
             text_color=colors["text_primary"],
         )
@@ -1311,20 +1310,7 @@ class PromptHistoryDialog(ctk.CTkToplevel):
         btn_row = ctk.CTkFrame(content, fg_color="transparent")
         btn_row.pack(fill="x", pady=(12, 0))
 
-        close_btn = ctk.CTkButton(
-            btn_row,
-            text="Close",
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="transparent",
-            hover_color=colors["border"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self.destroy,
-        )
+        close_btn = self._btn_secondary(btn_row, text="Close", command=self.destroy, width=90, height=36)
         close_btn.pack(side="right")
 
         self.bind("<Escape>", lambda _e: self.destroy())
@@ -1358,7 +1344,7 @@ class PromptHistoryDialog(ctk.CTkToplevel):
 
             snippet = self._build_snippet(version.get("content", ""))
             meta = self._build_meta(version)
-            detail = f"{meta} Â· {snippet}" if snippet else meta
+            detail = f"{meta} · {snippet}" if snippet else meta
 
             detail_label = ctk.CTkLabel(
                 left,
@@ -1371,16 +1357,12 @@ class PromptHistoryDialog(ctk.CTkToplevel):
             )
             detail_label.pack(anchor="w", pady=(4, 0))
 
-            restore_btn = ctk.CTkButton(
+            restore_btn = self._btn_primary(
                 row,
                 text="Restore",
+                command=lambda v=version: self._on_restore(v),
                 width=80,
                 height=32,
-                corner_radius=8,
-                font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-                fg_color=self.colors["accent"],
-                hover_color=self.colors["accent_hover"],
-                command=lambda v=version: self._on_restore(v),
             )
             restore_btn.pack(side="right", padx=12, pady=12)
 
@@ -1393,7 +1375,7 @@ class PromptHistoryDialog(ctk.CTkToplevel):
             return "Unknown time"
         try:
             dt = datetime.fromisoformat(iso_time)
-            return dt.strftime("%b %d, %Y Â· %I:%M %p")
+            return dt.strftime("%b %d, %Y · %I:%M %p")
         except Exception:
             return iso_time
 
@@ -1406,13 +1388,16 @@ class PromptHistoryDialog(ctk.CTkToplevel):
     def _build_meta(self, version: dict) -> str:
         name = version.get("name", "")
         category = version.get("category", "")
+        custom_category = (version.get("custom_category", "") or "").strip()
+        if category == "Other" and custom_category:
+            category = f"Other · {custom_category}"
         tags = version.get("tags") or []
         tag_text = ", ".join(tags[:3])
         parts = [p for p in (name, category, tag_text) if p]
-        return " Â· ".join(parts)
+        return " · ".join(parts)
 
 
-class TagInputDialog(ctk.CTkToplevel):
+class TagInputDialog(ModalDialog):
     """Dialog for entering a single tag."""
 
     def __init__(
@@ -1424,23 +1409,17 @@ class TagInputDialog(ctk.CTkToplevel):
         **kwargs,
     ):
         super().__init__(master, **kwargs)
-        self.colors = colors
         self.result: Optional[str] = None
 
-        self.title(title)
-        self.geometry("420x220")
-        self.resizable(False, False)
-        self.configure(fg_color=colors["bg"])
-
-        self.transient(master)
-        self.grab_set()
-
-        self.update_idletasks()
-        width = 420
-        height = 220
-        x = (self.winfo_screenwidth() - width) // 2
-        y = (self.winfo_screenheight() - height) // 2
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        self._init_modal(
+            master,
+            colors,
+            title=title,
+            width=420,
+            height=220,
+            resizable=(False, False),
+            fade_in=True,
+        )
 
         card = ctk.CTkFrame(self, fg_color=colors["surface"], corner_radius=16)
         card.pack(fill="both", expand=True, padx=20, pady=20)
@@ -1472,32 +1451,11 @@ class TagInputDialog(ctk.CTkToplevel):
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
         btn_frame.pack(fill="x")
 
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text="Cancel",
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12),
-            fg_color="transparent",
-            hover_color=colors["border"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
-            command=self._on_cancel,
-        )
+        cancel_btn = self._btn_secondary(btn_frame, text="Cancel", command=self._on_cancel, width=90, height=36)
         cancel_btn.pack(side="left")
 
-        confirm_btn = ctk.CTkButton(
-            btn_frame,
-            text=confirm_text,
-            width=90,
-            height=36,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
-            fg_color=colors["accent"],
-            hover_color=colors["accent_hover"],
-            command=self._on_confirm,
+        confirm_btn = self._btn_primary(
+            btn_frame, text=confirm_text, command=self._on_confirm, width=90, height=36
         )
         confirm_btn.pack(side="right")
 

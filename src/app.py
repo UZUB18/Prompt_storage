@@ -1,5 +1,6 @@
 ﻿"""Main application window - Apple 2026 Edition."""
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import filedialog
 from typing import Optional
 from pathlib import Path
@@ -107,6 +108,13 @@ class PromptLibraryApp(ctk.CTk):
         self.geometry("1200x800")
         self.minsize(1000, 700)
         self.configure(fg_color=self.COLORS["bg"])
+        self._app_fade_job = None
+        self._app_alpha_supported = False
+        try:
+            self.attributes("-alpha", 0.0)
+            self._app_alpha_supported = True
+        except Exception:
+            self._app_alpha_supported = False
         try:
             self.iconbitmap(str(resource_path("prompt_library.ico")))
         except Exception:
@@ -142,15 +150,55 @@ class PromptLibraryApp(ctk.CTk):
         self.bulk_count_label = None
         self.bulk_delete_btn = None
         self.bulk_export_btn = None
+        self._dirty_ids_cache: set[str] = set()
 
         # Build UI
         self._build_ui()
         self._refresh_list()
+        self._start_app_fade_in()
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self._bind_shortcuts()
 
     def _get_theme_colors(self) -> dict:
         return self.DARK_COLORS if self.theme == "dark" else self.LIGHT_COLORS
+
+    def _btn_secondary_style(
+        self,
+        *,
+        size: int = 11,
+        weight: str = "normal",
+        radius: int = 8,
+        text_color: Optional[str] = None,
+    ) -> dict:
+        return {
+            "corner_radius": radius,
+            "font": ctk.CTkFont(family="Segoe UI", size=size, weight=weight),
+            "fg_color": self.COLORS["surface"],
+            "hover_color": self.COLORS["border"],
+            "text_color": text_color or self.COLORS["text_secondary"],
+            "border_width": 1,
+            "border_color": self.COLORS["border"],
+        }
+
+    def _btn_primary_style(self, *, size: int = 11, weight: str = "bold", radius: int = 8) -> dict:
+        return {
+            "corner_radius": radius,
+            "font": ctk.CTkFont(family="Segoe UI", size=size, weight=weight),
+            "fg_color": self.COLORS["accent"],
+            "hover_color": self.COLORS["accent_hover"],
+        }
+
+    def _btn_danger_style(self, *, size: int = 11, weight: str = "bold", radius: int = 8) -> dict:
+        danger_hover = "#3B1F24" if self.theme == "dark" else "#FEE2E2"
+        return {
+            "corner_radius": radius,
+            "font": ctk.CTkFont(family="Segoe UI", size=size, weight=weight),
+            "fg_color": "transparent",
+            "hover_color": danger_hover,
+            "text_color": self.COLORS["danger"],
+            "border_width": 1,
+            "border_color": self.COLORS["border"],
+        }
 
     def _round_scale(self, value: float) -> float:
         # Round to nearest 0.05 for stability
@@ -250,10 +298,7 @@ class PromptLibraryApp(ctk.CTk):
             text="+",
             width=32,
             height=32,
-            corner_radius=16,
-            font=ctk.CTkFont(size=18),
-            fg_color=self.COLORS["accent"],
-            hover_color=self.COLORS["accent_hover"],
+            **self._btn_primary_style(size=18, weight="normal", radius=16),
             command=self._on_new_prompt,
         )
         new_btn.pack(side="right")
@@ -263,13 +308,7 @@ class PromptLibraryApp(ctk.CTk):
             text="Select",
             width=70,
             height=32,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_secondary"],
-            border_width=1,
-            border_color=self.COLORS["border"],
+            **self._btn_secondary_style(size=11, weight="bold", radius=10),
             command=self._toggle_multi_select,
         )
         self.select_mode_btn.pack(side="right", padx=(0, 8))
@@ -300,13 +339,7 @@ class PromptLibraryApp(ctk.CTk):
             text="x",
             width=36,
             height=36,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_muted"],
-            border_width=1,
-            border_color=self.COLORS["border"],
+            **self._btn_secondary_style(size=14, weight="bold", radius=10, text_color=self.COLORS["text_muted"]),
             command=self._clear_search,
             state="disabled",
         )
@@ -468,6 +501,7 @@ class PromptLibraryApp(ctk.CTk):
             on_select=self._on_prompt_select,
             on_copy=self._on_prompt_list_copy,
             on_rename=self._on_prompt_list_rename,
+            on_new_version=self._on_prompt_list_new_version,
             on_toggle_pin=self._on_prompt_list_toggle_pin,
             on_selection_change=self._on_selection_change,
             on_clear_search=self._clear_search,
@@ -494,96 +528,44 @@ class PromptLibraryApp(ctk.CTk):
         bulk_inner = ctk.CTkFrame(self.bulk_frame, fg_color="transparent")
         bulk_inner.pack(fill="both", expand=True, padx=16, pady=8)
 
-        self.bulk_count_label = ctk.CTkLabel(
-            bulk_inner,
-            text="Selected: 0",
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            text_color=self.COLORS["text_muted"],
-        )
-        self.bulk_count_label.pack(side="left")
-
-        self.bulk_select_all_btn = ctk.CTkButton(
-            bulk_inner,
-            text="Select all",
-            width=80,
-            height=28,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_secondary"],
-            border_width=1,
-            border_color=self.COLORS["border"],
-            command=self._on_bulk_select_all,
-        )
-        self.bulk_select_all_btn.pack(side="right")
-
-        self.bulk_clear_btn = ctk.CTkButton(
-            bulk_inner,
-            text="Clear",
-            width=60,
-            height=28,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_secondary"],
-            border_width=1,
-            border_color=self.COLORS["border"],
-            command=self._on_bulk_clear,
-        )
-        self.bulk_clear_btn.pack(side="right", padx=(0, 6))
+        # Minimal multi-select action row (keyboard handles selection mechanics).
+        self.bulk_count_label = None
 
         self.bulk_export_btn = ctk.CTkButton(
             bulk_inner,
-            text="Export",
-            width=70,
+            text="⤓",
+            width=36,
             height=28,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_secondary"],
-            border_width=1,
-            border_color=self.COLORS["border"],
+            **self._btn_secondary_style(size=13, weight="bold", radius=8),
             state="disabled",
             command=self._on_bulk_export,
         )
         self.bulk_export_btn.pack(side="right", padx=(0, 6))
+        self._attach_hover_tooltip(self.bulk_export_btn, "Export selected")
 
         self.bulk_tag_btn = ctk.CTkButton(
             bulk_inner,
-            text="Tags",
-            width=60,
+            text="#",
+            width=36,
             height=28,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_secondary"],
-            border_width=1,
-            border_color=self.COLORS["border"],
+            **self._btn_secondary_style(size=13, weight="bold", radius=8),
             state="disabled",
             command=self._show_bulk_tag_menu,
         )
         self.bulk_tag_btn.pack(side="right", padx=(0, 6))
+        self._attach_hover_tooltip(self.bulk_tag_btn, "Tag selected")
 
         self.bulk_delete_btn = ctk.CTkButton(
             bulk_inner,
-            text="Delete",
-            width=70,
+            text="×",
+            width=36,
             height=28,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=10, weight="bold"),
-            fg_color="transparent",
-            hover_color="#FEE2E2",
-            text_color=self.COLORS["danger"],
-            border_width=1,
-            border_color=self.COLORS["border"],
+            **self._btn_danger_style(size=14, weight="bold", radius=8),
             state="disabled",
             command=self._on_bulk_delete,
         )
         self.bulk_delete_btn.pack(side="right", padx=(0, 6))
+        self._attach_hover_tooltip(self.bulk_delete_btn, "Delete selected")
 
         if self.multi_select_mode:
             self.bulk_frame.grid()
@@ -618,13 +600,7 @@ class PromptLibraryApp(ctk.CTk):
             actions,
             text="Import",
             height=30,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_secondary"],
-            border_width=1,
-            border_color=self.COLORS["border"],
+            **self._btn_secondary_style(size=11, radius=8),
             command=self._on_import,
         )
         self.import_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
@@ -633,13 +609,7 @@ class PromptLibraryApp(ctk.CTk):
             actions,
             text="Export",
             height=30,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_secondary"],
-            border_width=1,
-            border_color=self.COLORS["border"],
+            **self._btn_secondary_style(size=11, radius=8),
             command=self._on_export,
         )
         self.export_btn.pack(side="left", fill="x", expand=True, padx=4)
@@ -648,13 +618,7 @@ class PromptLibraryApp(ctk.CTk):
             actions,
             text="Library...",
             height=30,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.COLORS["surface"],
-            hover_color=self.COLORS["border"],
-            text_color=self.COLORS["text_secondary"],
-            border_width=1,
-            border_color=self.COLORS["border"],
+            **self._btn_secondary_style(size=11, radius=8),
             command=self._on_change_library_location,
         )
         self.library_btn.pack(side="left", fill="x", expand=True, padx=(4, 0))
@@ -697,6 +661,14 @@ class PromptLibraryApp(ctk.CTk):
         self.bind_all("<Control-i>", lambda e: self._on_shortcut_snippets())
         self.bind_all("<Control-Shift-M>", lambda e: self._on_shortcut_toggle_preview())
         self.bind_all("<Control-Shift-V>", lambda e: self._on_shortcut_fill_variables())
+        self.bind_all("<Control-l>", self._on_shortcut_toggle_select_mode)
+        self.bind_all("<Control-a>", self._on_shortcut_select_all)
+        self.bind_all("<Control-Shift-A>", self._on_shortcut_clear_selection)
+        self.bind_all("<Up>", self._on_shortcut_select_up)
+        self.bind_all("<Down>", self._on_shortcut_select_down)
+        self.bind_all("<Shift-Up>", self._on_shortcut_select_up_extend)
+        self.bind_all("<Shift-Down>", self._on_shortcut_select_down_extend)
+        self.bind_all("<space>", self._on_shortcut_toggle_current_selection)
         self.bind_all("<Escape>", lambda e: self._on_escape())
 
     def _focus_search(self):
@@ -721,6 +693,75 @@ class PromptLibraryApp(ctk.CTk):
                 text_color=self.COLORS["text_secondary"],
             )
         self._on_selection_change(self.prompt_list.get_selected_prompts())
+
+    def _is_text_input_focus(self) -> bool:
+        widget = self.focus_get()
+        if widget is None:
+            return False
+        cls = widget.winfo_class().lower()
+        if cls in {"entry", "text", "tentry", "ctkentry", "ctktextbox"}:
+            return True
+        return False
+
+    def _on_shortcut_toggle_select_mode(self, event=None):
+        if self._is_text_input_focus():
+            return
+        self._toggle_multi_select()
+        return "break"
+
+    def _on_shortcut_select_all(self, event=None):
+        if self._is_text_input_focus():
+            return
+        if not self.multi_select_mode:
+            self._toggle_multi_select()
+        self.prompt_list.select_all()
+        return "break"
+
+    def _on_shortcut_clear_selection(self, event=None):
+        if not self.multi_select_mode:
+            return
+        self.prompt_list.clear_selection()
+        return "break"
+
+    def _can_handle_select_nav(self) -> bool:
+        if not self.multi_select_mode:
+            return False
+        if self._is_text_input_focus():
+            return False
+        widget = self.focus_get()
+        if widget is not None and widget.winfo_toplevel() is not self:
+            return False
+        return True
+
+    def _on_shortcut_select_up(self, event=None):
+        if not self._can_handle_select_nav():
+            return
+        if self.prompt_list.keyboard_move_selection(-1, extend=False):
+            return "break"
+
+    def _on_shortcut_select_down(self, event=None):
+        if not self._can_handle_select_nav():
+            return
+        if self.prompt_list.keyboard_move_selection(1, extend=False):
+            return "break"
+
+    def _on_shortcut_select_up_extend(self, event=None):
+        if not self._can_handle_select_nav():
+            return
+        if self.prompt_list.keyboard_move_selection(-1, extend=True):
+            return "break"
+
+    def _on_shortcut_select_down_extend(self, event=None):
+        if not self._can_handle_select_nav():
+            return
+        if self.prompt_list.keyboard_move_selection(1, extend=True):
+            return "break"
+
+    def _on_shortcut_toggle_current_selection(self, event=None):
+        if not self._can_handle_select_nav():
+            return
+        if self.prompt_list.keyboard_toggle_active():
+            return "break"
 
     def _on_ctrl_f(self, event=None):
         widget = self.focus_get()
@@ -885,16 +926,8 @@ class PromptLibraryApp(ctk.CTk):
             self.current_prompt = prompt
             self.editor.set_prompt(prompt)
             draft = state.get("draft")
-            if draft:
-                self.editor.name_entry.delete(0, "end")
-                self.editor.name_entry.insert(0, draft["name"])
-                self.editor.category_var.set(draft["category"])
-                tags = draft.get("tags", [])
-                if isinstance(tags, str):
-                    tags = [t.strip() for t in tags.split(",") if t.strip()]
-                self.editor.set_tags(list(tags))
-                self.editor.sensitive_var.set(draft["sensitive"])
-                self.editor._set_current_content(draft["content"])
+            if isinstance(draft, dict):
+                self.editor.set_draft(draft)
             self.editor.update_save_state(state.get("has_unsaved_changes", False))
 
     def _on_shortcut_save(self):
@@ -934,7 +967,10 @@ class PromptLibraryApp(ctk.CTk):
         if widget is not None and widget.winfo_toplevel() is not self:
             return
         if self.multi_select_mode:
-            self._toggle_multi_select()
+            if self.prompt_list.get_selected_prompts():
+                self.prompt_list.clear_selection()
+            else:
+                self._toggle_multi_select()
             return
         if self.search_entry_var.get():
             self._clear_search()
@@ -946,6 +982,7 @@ class PromptLibraryApp(ctk.CTk):
         """Refresh the prompt list."""
         self.prompts = self.storage.load_prompts()
         self.prompt_list.set_prompts(self.prompts)
+        self._refresh_dirty_prompt_markers(include_disk_drafts=True)
         self._update_count()
         self._update_filter_counts()
         if self.multi_select_mode:
@@ -1041,6 +1078,7 @@ class PromptLibraryApp(ctk.CTk):
             return (
                 term in prompt.name.lower()
                 or term in prompt.content.lower()
+                or term in (getattr(prompt, "custom_category", "") or "").lower()
                 or any(term in t.lower() for t in prompt.tags)
             )
 
@@ -1103,10 +1141,13 @@ class PromptLibraryApp(ctk.CTk):
         self.has_unsaved_changes = False
         self.editor.set_prompt(prompt)
         draft = self.storage.load_draft(prompt.id)
-        if isinstance(draft, dict):
+        if isinstance(draft, dict) and self._draft_differs_from_prompt(prompt, draft):
             self.editor.set_draft(draft)
-            self.has_unsaved_changes = True
-            self.editor.update_save_state(True)
+            self._recalculate_unsaved_state()
+        else:
+            # Clean up stale drafts that no longer differ from saved prompt.
+            self.storage.clear_draft(prompt.id)
+            self._recalculate_unsaved_state()
 
     def _on_new_prompt(self):
         """Open new prompt dialog."""
@@ -1169,10 +1210,20 @@ class PromptLibraryApp(ctk.CTk):
         self._refresh_list()
         self._show_toast("Prompt renamed")
 
+    def _on_prompt_list_new_version(self, prompt: Prompt):
+        """Create a new prompt version from list context menu."""
+        if not self._resolve_unsaved_changes(prompt.id):
+            return
+
+        source_prompt = self._get_prompt_by_id(prompt.id)
+        if not source_prompt:
+            self._show_toast("Versioning failed: prompt not found")
+            return
+
+        self._create_new_prompt_version(source_prompt)
+
     def _on_selection_change(self, selected: list[Prompt]):
         count = len(selected)
-        if self.bulk_count_label:
-            self.bulk_count_label.configure(text=f"Selected: {count}")
         has_selected = count > 0
         if self.bulk_delete_btn:
             state = "normal" if has_selected else "disabled"
@@ -1358,40 +1409,115 @@ class PromptLibraryApp(ctk.CTk):
         prompt.tags = list(version.get("tags", prompt.tags) or [])
         prompt.sensitive = bool(version.get("sensitive", prompt.sensitive))
         prompt.pinned = bool(version.get("pinned", prompt.pinned))
+        prompt.custom_category = str(version.get("custom_category", getattr(prompt, "custom_category", "")) or "")
         self._save_prompt(prompt, toast_message="Version restored")
 
     def _on_version_bump(self, prompt: Prompt):
-        """Increment version suffix on prompt name and save."""
-        name = self.editor.name_entry.get().strip()
-        new_name, version_num = self._next_version_name(name)
-        self.editor.name_entry.delete(0, "end")
-        self.editor.name_entry.insert(0, new_name)
+        """Create a new visible version from the current editor state."""
+        if not self.current_prompt or self.current_prompt.id != prompt.id:
+            return
 
-        prompt.name = new_name
-        prompt.category = Category(self.editor.category_var.get())
-        prompt.tags = self.editor.get_tags()
-        prompt.content = self.editor._get_current_content()
-        prompt.sensitive = bool(self.editor.sensitive_var.get())
-        prompt.pinned = bool(prompt.pinned)
+        source_data = {
+            "name": self.editor.name_entry.get().strip() or prompt.name,
+            "content": self.editor._get_current_content(),
+            "category": self.editor.category_var.get(),
+            "custom_category": self.editor.custom_category.strip(),
+            "tags": self.editor.get_tags(),
+            "sensitive": bool(self.editor.sensitive_var.get()),
+            "pinned": bool(prompt.pinned),
+        }
 
-        self._save_prompt(prompt, toast_message=f"Version bumped to v{version_num}")
+        # Preserve any unsaved work on the current prompt as a draft before switching.
+        if self.has_unsaved_changes:
+            self.storage.save_draft(prompt.id, source_data)
 
-    def _next_version_name(self, name: str) -> tuple[str, int]:
-        match = re.search(r"(?:\s+v)(\d+)$", name, re.IGNORECASE)
+        self._create_new_prompt_version(prompt, source_data=source_data)
+
+    def _create_new_prompt_version(self, prompt: Prompt, source_data: Optional[dict] = None):
+        family_id = getattr(prompt, "version_group_id", "") or prompt.id
+        existing_versions = [
+            p for p in self.prompts
+            if (getattr(p, "version_group_id", "") or p.id) == family_id
+        ]
+        max_version = max(
+            [max(1, int(getattr(p, "version_number", 1) or 1)) for p in existing_versions] or [1]
+        )
+        next_version = max_version + 1
+
+        raw_name = (
+            str(source_data.get("name", prompt.name))
+            if isinstance(source_data, dict)
+            else prompt.name
+        )
+        base_name = self._strip_version_suffix(raw_name)
+        version_name = f"{base_name} v{next_version}".strip()
+
+        raw_category = (
+            source_data.get("category", prompt.category.value)
+            if isinstance(source_data, dict)
+            else prompt.category.value
+        )
+        try:
+            category = Category(raw_category)
+        except Exception:
+            category = Category.OTHER
+
+        tags = source_data.get("tags", prompt.tags) if isinstance(source_data, dict) else prompt.tags
+        custom_category = (
+            str(source_data.get("custom_category", getattr(prompt, "custom_category", "")) or "")
+            if isinstance(source_data, dict)
+            else str(getattr(prompt, "custom_category", "") or "")
+        )
+        content = (
+            str(source_data.get("content", prompt.content))
+            if isinstance(source_data, dict)
+            else prompt.content
+        )
+        sensitive = (
+            bool(source_data.get("sensitive", prompt.sensitive))
+            if isinstance(source_data, dict)
+            else bool(prompt.sensitive)
+        )
+        pinned = (
+            bool(source_data.get("pinned", prompt.pinned))
+            if isinstance(source_data, dict)
+            else bool(prompt.pinned)
+        )
+
+        new_prompt = Prompt(
+            name=version_name,
+            content=content,
+            category=category,
+            tags=list(tags) if isinstance(tags, list) else [],
+            custom_category=custom_category.strip() if category == Category.OTHER else "",
+            sensitive=sensitive,
+            pinned=pinned,
+            version_group_id=family_id,
+            version_number=next_version,
+            previous_version_id=prompt.id,
+        )
+
+        self.storage.add_prompt(new_prompt)
+        self._refresh_list()
+        self.current_prompt = new_prompt
+        self.has_unsaved_changes = False
+        self.editor.set_prompt(new_prompt)
+        self.editor.update_save_state(False)
+        self.prompt_list.set_selected_prompt(new_prompt)
+        self._show_toast(f"Created {version_name}")
+
+    def _strip_version_suffix(self, name: str) -> str:
+        clean = (name or "").strip()
+        match = re.search(r"(?:\s+v)(\d+)$", clean, re.IGNORECASE)
         if match:
-            base = name[: match.start()].strip()
-            try:
-                version = int(match.group(1)) + 1
-            except ValueError:
-                version = 1
-        else:
-            base = name.strip()
-            version = 1
+            clean = clean[: match.start()].strip()
+        return clean or "Prompt"
 
-        if not base:
-            base = "Prompt"
-
-        return f"{base} v{version}".strip(), version
+    def _get_prompt_by_id(self, prompt_id: str) -> Optional[Prompt]:
+        for prompt in self.prompts:
+            if prompt.id == prompt_id:
+                return prompt
+        return None
 
     def _save_prompt(self, prompt: Prompt, toast_message: Optional[str] = "Changes saved"):
         """Persist prompt and refresh UI."""
@@ -1407,13 +1533,108 @@ class PromptLibraryApp(ctk.CTk):
 
     def _on_editor_change(self):
         """Handle editor content change."""
-        self.has_unsaved_changes = True
-        self.editor.update_save_state(True)
+        self._recalculate_unsaved_state()
 
     def _on_editor_autosave_draft(self, prompt_id: str, draft: dict):
         if not prompt_id:
             return
-        self.storage.save_draft(prompt_id, draft)
+        prompt = self._get_prompt_by_id(prompt_id)
+        if prompt and self._draft_differs_from_prompt(prompt, draft):
+            self.storage.save_draft(prompt_id, draft)
+        else:
+            self.storage.clear_draft(prompt_id)
+        self._refresh_dirty_prompt_markers(include_disk_drafts=True)
+
+    def _recalculate_unsaved_state(self):
+        """Recompute unsaved state by comparing editor state with persisted prompt."""
+        self.has_unsaved_changes = self._is_editor_modified()
+        self.editor.update_save_state(self.has_unsaved_changes)
+        self._refresh_dirty_prompt_markers(include_disk_drafts=False)
+
+    def _is_editor_modified(self) -> bool:
+        if not self.current_prompt:
+            return False
+        prompt_state = self._canonical_prompt_state(self.current_prompt)
+        editor_state = self._canonical_editor_state()
+        return editor_state != prompt_state
+
+    def _draft_differs_from_prompt(self, prompt: Prompt, draft: dict) -> bool:
+        prompt_state = self._canonical_prompt_state(prompt)
+        draft_state = self._canonical_draft_state(draft, fallback_prompt=prompt)
+        return draft_state != prompt_state
+
+    def _canonical_prompt_state(self, prompt: Prompt) -> dict:
+        category_value = prompt.category.value if isinstance(prompt.category, Category) else str(prompt.category)
+        custom_category = (getattr(prompt, "custom_category", "") or "").strip()
+        if category_value != Category.OTHER.value:
+            custom_category = ""
+        return {
+            "name": (prompt.name or "").strip(),
+            "category": category_value,
+            "custom_category": custom_category,
+            "tags": self._normalize_tags(prompt.tags),
+            "content": prompt.content or "",
+            "sensitive": bool(prompt.sensitive),
+        }
+
+    def _canonical_editor_state(self) -> dict:
+        if not self.current_prompt:
+            return {"name": "", "category": Category.OTHER.value, "tags": [], "content": "", "sensitive": False}
+        category_value = self.editor.category_var.get() or Category.OTHER.value
+        custom_category = (self.editor.custom_category or "").strip()
+        if category_value != Category.OTHER.value:
+            custom_category = ""
+        return {
+            "name": self.editor.name_entry.get().strip(),
+            "category": category_value,
+            "custom_category": custom_category,
+            "tags": self._normalize_tags(self.editor.get_tags()),
+            "content": self.editor._get_current_content(),
+            "sensitive": bool(self.editor.sensitive_var.get()),
+        }
+
+    def _canonical_draft_state(self, draft: dict, fallback_prompt: Prompt) -> dict:
+        if not isinstance(draft, dict):
+            return self._canonical_prompt_state(fallback_prompt)
+        category_value = str(draft.get("category", fallback_prompt.category.value) or Category.OTHER.value)
+        custom_category = str(
+            draft.get("custom_category", getattr(fallback_prompt, "custom_category", "")) or ""
+        ).strip()
+        if category_value != Category.OTHER.value:
+            custom_category = ""
+        return {
+            "name": str(draft.get("name", fallback_prompt.name)).strip(),
+            "category": category_value,
+            "custom_category": custom_category,
+            "tags": self._normalize_tags(draft.get("tags", fallback_prompt.tags)),
+            "content": str(draft.get("content", fallback_prompt.content) or ""),
+            "sensitive": bool(draft.get("sensitive", fallback_prompt.sensitive)),
+        }
+
+    def _normalize_tags(self, tags: object) -> list[str]:
+        if not isinstance(tags, list):
+            return []
+        return [str(tag).strip() for tag in tags if str(tag).strip()]
+
+    def _refresh_dirty_prompt_markers(self, include_disk_drafts: bool = True):
+        """Mark prompts with drafts/unsaved edits in the list UI."""
+        by_id = {p.id: p for p in self.prompts}
+
+        if include_disk_drafts:
+            dirty_ids: set[str] = set()
+            drafts = self.storage.load_drafts()
+            for prompt_id, draft in drafts.items():
+                prompt = by_id.get(prompt_id)
+                if prompt and self._draft_differs_from_prompt(prompt, draft):
+                    dirty_ids.add(prompt_id)
+            self._dirty_ids_cache = dirty_ids
+
+        dirty_ids = {pid for pid in self._dirty_ids_cache if pid in by_id}
+
+        if self.current_prompt and self.has_unsaved_changes:
+            dirty_ids.add(self.current_prompt.id)
+
+        self.prompt_list.set_dirty_ids(dirty_ids)
 
     def _on_editor_preview_toggle(self, enabled: bool):
         self.preview_split_enabled = bool(enabled)
@@ -1455,12 +1676,14 @@ class PromptLibraryApp(ctk.CTk):
         content = self.editor.content_text.get("1.0", "end-1c")
         tags = self.editor.get_tags()
         category = Category(self.editor.category_var.get())
+        custom_category = self.editor.custom_category.strip()
 
         new_prompt = Prompt(
             name=f"{name} (copy)",
             content=content,
             category=category,
             tags=tags,
+            custom_category=custom_category if category == Category.OTHER else "",
         )
 
         self.storage.add_prompt(new_prompt)
@@ -1503,6 +1726,12 @@ class PromptLibraryApp(ctk.CTk):
             return
         if action == "save":
             self.editor.save_current_prompt()
+        if self._app_fade_job is not None:
+            try:
+                self.after_cancel(self._app_fade_job)
+            except Exception:
+                pass
+            self._app_fade_job = None
         self.destroy()
 
     def _on_change_library_location(self):
@@ -1547,6 +1776,68 @@ class PromptLibraryApp(ctk.CTk):
     def _show_toast(self, message: str):
         """Show toast notification."""
         Toast(self, message, colors=self.COLORS)
+
+    def _start_app_fade_in(self):
+        if not self._app_alpha_supported:
+            return
+        self._animate_app_alpha(0.0)
+
+    def _animate_app_alpha(self, value: float):
+        if not self.winfo_exists():
+            return
+        next_value = min(1.0, value + 0.12)
+        try:
+            self.attributes("-alpha", next_value)
+        except Exception:
+            return
+        if next_value < 1.0:
+            self._app_fade_job = self.after(16, lambda: self._animate_app_alpha(next_value))
+
+    def _attach_hover_tooltip(self, widget, text: str):
+        widget.bind("<Enter>", lambda e, t=text: self._schedule_tooltip(e, t))
+        widget.bind("<Leave>", lambda _e: self._hide_tooltip())
+        widget.bind("<ButtonPress>", lambda _e: self._hide_tooltip())
+
+    def _schedule_tooltip(self, event, text: str):
+        self._hide_tooltip()
+        self._tooltip_after_id = self.after(280, lambda: self._show_tooltip(event, text))
+
+    def _show_tooltip(self, event, text: str):
+        self._tooltip_after_id = None
+        tip = tk.Toplevel(self)
+        tip.wm_overrideredirect(True)
+        tip.configure(bg=self.COLORS["toast_bg"])
+
+        label = tk.Label(
+            tip,
+            text=text,
+            bg=self.COLORS["toast_bg"],
+            fg=self.COLORS["toast_text"],
+            padx=8,
+            pady=4,
+            font=("Segoe UI", 9),
+        )
+        label.pack()
+
+        x = event.x_root
+        y = event.y_root - 28
+        tip.wm_geometry(f"+{x}+{y}")
+        self._tooltip_window = tip
+
+    def _hide_tooltip(self):
+        if hasattr(self, "_tooltip_after_id") and self._tooltip_after_id is not None:
+            try:
+                self.after_cancel(self._tooltip_after_id)
+            except Exception:
+                pass
+            self._tooltip_after_id = None
+        tip = getattr(self, "_tooltip_window", None)
+        if tip is not None:
+            try:
+                tip.destroy()
+            except Exception:
+                pass
+            self._tooltip_window = None
 
 
 def run():

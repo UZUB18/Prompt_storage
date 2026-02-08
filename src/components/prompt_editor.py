@@ -16,7 +16,13 @@ except ImportError:
     HAS_PIL = False
 
 from ..models import Prompt, Category
-from .dialogs import FindReplaceDialog, ConfirmDialog, VariableInputDialog, SnippetPickerDialog
+from .dialogs import (
+    FindReplaceDialog,
+    ConfirmDialog,
+    VariableInputDialog,
+    SnippetPickerDialog,
+    TagInputDialog,
+)
 from .tag_chips import TagChipsInput
 
 
@@ -57,6 +63,8 @@ class PromptEditor(ctk.CTkFrame):
         self.preview_enabled = bool(preview_enabled)
         self.token_mode = token_mode
         self.current_prompt: Optional[Prompt] = None
+        self.custom_category = ""
+        self._suppress_category_prompt = False
         self._pin_symbol = "\u2606"
         self._find_dialog: Optional[FindReplaceDialog] = None
         self._replace_dialog: Optional[FindReplaceDialog] = None
@@ -163,13 +171,7 @@ class PromptEditor(ctk.CTkFrame):
             text="Open in AI",
             width=84,
             height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=colors["surface"],
-            hover_color=colors["bg"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
+            **self._btn_secondary_style(size=11, weight="normal", radius=10),
             command=self._open_in_selected_ai,
         )
         self.open_ai_btn.pack(side="left", pady=10, padx=(0, 8))
@@ -180,13 +182,7 @@ class PromptEditor(ctk.CTkFrame):
             text="Copy",
             width=52,
             height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
-            fg_color=colors["surface"],
-            hover_color=colors["bg"],
-            text_color=colors["text_secondary"],
-            border_width=1,
-            border_color=colors["border"],
+            **self._btn_secondary_style(size=11, weight="bold", radius=10),
             command=self._on_copy,
         )
         self.copy_btn.pack(side="left", pady=10)
@@ -196,13 +192,13 @@ class PromptEditor(ctk.CTkFrame):
             text="Preview",
             width=70,
             height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=11),
-            fg_color=self.colors["accent_glow"] if self.preview_enabled else self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["accent"] if self.preview_enabled else self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
+            **self._btn_secondary_style(
+                size=11,
+                weight="normal",
+                radius=10,
+                fg_color=self.colors["accent_glow"] if self.preview_enabled else self.colors["surface"],
+                text_color=self.colors["accent"] if self.preview_enabled else self.colors["text_secondary"],
+            ),
             command=self._on_preview_button,
         )
         self.preview_btn.pack(side="left", padx=(8, 0), pady=10)
@@ -212,13 +208,7 @@ class PromptEditor(ctk.CTkFrame):
             text="\u22ef",
             width=34,
             height=28,
-            corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
-            fg_color=self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
+            **self._btn_secondary_style(size=14, weight="bold", radius=10),
             command=self._show_overflow_menu,
         )
         self.overflow_btn.pack(side="left", padx=(8, 0), pady=10)
@@ -288,9 +278,18 @@ class PromptEditor(ctk.CTkFrame):
             dropdown_text_color=colors["text_primary"],
             dropdown_hover_color=colors["accent_glow"],
             corner_radius=9,
-            command=lambda _: self._on_field_change(),
+            command=self._on_category_change,
         )
         self.category_dropdown.pack(fill="x", padx=1, pady=1)
+
+        self.custom_category_label = ctk.CTkLabel(
+            cat_frame,
+            text="",
+            font=ctk.CTkFont(family="Segoe UI", size=10),
+            text_color=colors["text_muted"],
+            anchor="w",
+        )
+        self.custom_category_label.pack(fill="x", pady=(4, 0))
 
         # Row 1 (right): Tags
         tags_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -341,13 +340,7 @@ class PromptEditor(ctk.CTkFrame):
             text="Reveal",
             width=60,
             height=22,
-            corner_radius=8,
-            font=ctk.CTkFont(family="Segoe UI", size=10),
-            fg_color=self.colors["surface"],
-            hover_color=self.colors["bg"],
-            text_color=self.colors["text_secondary"],
-            border_width=1,
-            border_color=self.colors["border"],
+            **self._btn_secondary_style(size=10, weight="normal", radius=8),
             command=self._toggle_reveal,
         )
         self.reveal_btn.pack(side="left", padx=(0, 10))
@@ -405,15 +398,42 @@ class PromptEditor(ctk.CTkFrame):
 
         # Save button
         self.save_btn = ctk.CTkButton(
-            footer_inner, text="Save", width=90, height=36, corner_radius=10,
-            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
-            fg_color=colors["accent"], hover_color=colors["accent_hover"],
+            footer_inner, text="Save", width=90, height=36,
+            **self._btn_primary_style(size=13, weight="bold", radius=10),
             command=self._on_save,
         )
         self.save_btn.pack(side="right", pady=12)
 
         self._apply_preview_layout()
         self._refresh_preview()
+
+    def _btn_secondary_style(
+        self,
+        *,
+        size: int = 11,
+        weight: str = "normal",
+        radius: int = 10,
+        fg_color: Optional[str] = None,
+        text_color: Optional[str] = None,
+        hover_color: Optional[str] = None,
+    ) -> dict:
+        return {
+            "corner_radius": radius,
+            "font": ctk.CTkFont(family="Segoe UI", size=size, weight=weight),
+            "fg_color": fg_color or self.colors["surface"],
+            "hover_color": hover_color or self.colors["border"],
+            "text_color": text_color or self.colors["text_secondary"],
+            "border_width": 1,
+            "border_color": self.colors["border"],
+        }
+
+    def _btn_primary_style(self, *, size: int = 12, weight: str = "bold", radius: int = 10) -> dict:
+        return {
+            "corner_radius": radius,
+            "font": ctk.CTkFont(family="Segoe UI", size=size, weight=weight),
+            "fg_color": self.colors["accent"],
+            "hover_color": self.colors["accent_hover"],
+        }
 
     def set_prompt(self, prompt: Optional[Prompt]):
         """Set prompt to edit."""
@@ -430,7 +450,11 @@ class PromptEditor(ctk.CTkFrame):
         # Populate fields
         self.name_entry.delete(0, "end")
         self.name_entry.insert(0, prompt.name)
+        self._suppress_category_prompt = True
         self.category_var.set(prompt.category.value)
+        self._suppress_category_prompt = False
+        self.custom_category = (getattr(prompt, "custom_category", "") or "").strip()
+        self._update_custom_category_label()
         self.tags_input.set_tags(prompt.tags)
         self.sensitive_var.set(bool(prompt.sensitive))
         self._hidden_content_cache = prompt.content
@@ -451,13 +475,24 @@ class PromptEditor(ctk.CTkFrame):
         tags = draft.get("tags", self.current_prompt.tags)
         content = str(draft.get("content", self.current_prompt.content))
         sensitive = bool(draft.get("sensitive", self.current_prompt.sensitive))
+        custom_category = str(
+            draft.get(
+                "custom_category",
+                getattr(self.current_prompt, "custom_category", ""),
+            )
+            or ""
+        )
 
         self.name_entry.delete(0, "end")
         self.name_entry.insert(0, name)
+        self._suppress_category_prompt = True
         if category in [c.value for c in Category]:
             self.category_var.set(category)
         else:
             self.category_var.set(Category.OTHER.value)
+        self._suppress_category_prompt = False
+        self.custom_category = custom_category.strip()
+        self._update_custom_category_label()
         self.tags_input.set_tags(list(tags) if isinstance(tags, list) else [])
         self.sensitive_var.set(sensitive)
         self._content_hidden = bool(sensitive)
@@ -549,6 +584,8 @@ class PromptEditor(ctk.CTkFrame):
 
     def clear(self):
         self.current_prompt = None
+        self.custom_category = ""
+        self._update_custom_category_label()
         self.card.grid_forget()
         self.empty_frame.grid(row=0, column=0, sticky="nsew")
 
@@ -557,6 +594,38 @@ class PromptEditor(ctk.CTkFrame):
 
     def set_tags(self, tags: list[str], notify: bool = False):
         self.tags_input.set_tags(tags, notify=notify)
+
+    def _on_category_change(self, selected: str):
+        if self._suppress_category_prompt:
+            return
+        if selected == Category.OTHER.value:
+            self._prompt_custom_category()
+        else:
+            self.custom_category = ""
+        self._update_custom_category_label()
+        self._on_field_change()
+
+    def _prompt_custom_category(self):
+        previous = self.custom_category
+        dialog = TagInputDialog(
+            self,
+            colors=self.colors,
+            title="Custom category",
+            confirm_text="Use",
+        )
+        self.wait_window(dialog)
+        if dialog.result is None:
+            self.custom_category = previous
+            return
+        self.custom_category = (dialog.result or "").strip()
+
+    def _update_custom_category_label(self):
+        if self.category_var.get() == Category.OTHER.value and self.custom_category:
+            self.custom_category_label.configure(text=f"Custom: {self.custom_category}")
+        elif self.category_var.get() == Category.OTHER.value:
+            self.custom_category_label.configure(text="Custom: (not set)")
+        else:
+            self.custom_category_label.configure(text="")
 
     def _on_field_change(self, event=None):
         if self.current_prompt:
@@ -568,6 +637,11 @@ class PromptEditor(ctk.CTkFrame):
             return
         self.current_prompt.name = self.name_entry.get().strip()
         self.current_prompt.category = Category(self.category_var.get())
+        self.current_prompt.custom_category = (
+            self.custom_category.strip()
+            if self.current_prompt.category == Category.OTHER
+            else ""
+        )
         self.current_prompt.tags = self.tags_input.get_tags()
         self.current_prompt.content = self._get_current_content()
         self.current_prompt.sensitive = bool(self.sensitive_var.get())
@@ -636,7 +710,7 @@ class PromptEditor(ctk.CTkFrame):
         menu.add_command(label="Fill variables", command=self.fill_variables)
         menu.add_separator()
         menu.add_command(label="Format...", command=lambda: self._show_format_menu(anchor=self.overflow_btn))
-        menu.add_command(label="Version +", command=self._on_version_bump)
+        menu.add_command(label="Create new version", command=self._on_version_bump)
         menu.add_command(label="History", command=self._on_show_history)
         menu.add_separator()
         menu.add_command(label="Delete", command=self._on_delete)
@@ -672,6 +746,7 @@ class PromptEditor(ctk.CTkFrame):
             data = {
                 "name": self.name_entry.get().strip(),
                 "category": self.category_var.get(),
+                "custom_category": self.custom_category.strip(),
                 "tags": self.tags_input.get_tags(),
                 "sensitive": bool(self.sensitive_var.get()),
                 "pinned": bool(self.current_prompt.pinned) if self.current_prompt else False,
@@ -1009,6 +1084,7 @@ class PromptEditor(ctk.CTkFrame):
         draft = {
             "name": self.name_entry.get().strip(),
             "category": self.category_var.get(),
+            "custom_category": self.custom_category.strip(),
             "tags": self.tags_input.get_tags(),
             "content": self._get_current_content(),
             "sensitive": bool(self.sensitive_var.get()),

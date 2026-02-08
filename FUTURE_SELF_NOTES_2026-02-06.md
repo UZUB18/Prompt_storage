@@ -1,4 +1,4 @@
-# Future-self notes (iterative timeline)
+﻿# Future-self notes (iterative timeline)
 
 Quick history in clear step order.
 
@@ -69,13 +69,71 @@ Quick history in clear step order.
 
 ---
 
+## Day 3 — Feb 8, 2026 (Versioning + selection + modal consistency)
+
+### Step 12 — Prompt versioning system (`src/models.py`, `src/app.py`, `src/storage.py`, `src/components/*`)
+- Added persistent version metadata on prompts:
+  - `version_group_id`
+  - `version_number`
+  - `previous_version_id`
+- Added explicit "Create new version" flows from:
+  - editor overflow menu
+  - prompt list context menu
+- New versions are stored as separate prompts (old + new both visible), while linked in one version family.
+- Added restore handling from history with version-aware metadata.
+
+### Step 13 — Save/draft false-positive cleanup (`src/app.py`, `src/storage.py`, `src/components/prompt_editor.py`)
+- Reworked unsaved detection to compare canonical editor state vs persisted prompt.
+- Prevented save prompts when content effectively returns to original state.
+- Drafts now persist only when draft actually differs from saved prompt.
+- Stale drafts are cleared automatically when no real diff exists.
+- Added dirty marker syncing in list UI.
+
+### Step 14 — Multi-select UX modernization (`src/app.py`, `src/components/prompt_list.py`)
+- Made selection behavior consistent: selecting row and checkbox represent the same selected state.
+- Added keyboard-first selection controls:
+  - `Ctrl+L` toggle select mode
+  - `Ctrl+A` select visible
+  - `Ctrl+Shift+A` clear selection
+  - arrows / shift+arrows range navigation
+  - `Space` toggle active row
+- Simplified bulk action bar to icon actions with hover tooltips:
+  - export (`⤓`)
+  - tag (`#`)
+  - delete (`×`)
+
+### Step 15 — Custom category flow for "Other" (`src/components/dialogs.py`, `src/components/prompt_editor.py`)
+- When category "Other" is selected in create/edit, a secondary input dialog is opened.
+- Added explicit `custom_category` storage and search support.
+- Displayed custom category context in editor/list/history metadata.
+
+### Step 16 — Popup consistency + motion polish (`src/components/dialogs.py`, `src/app.py`)
+- Introduced shared `ModalDialog` base:
+  - centered positioning
+  - autosize support
+  - fade-in animation
+  - standardized primary/secondary/danger button styles
+- Migrated existing popups to the shared modal system.
+- Added main app fade-in on launch.
+
+### Step 17 — Startup regression fix after style refactor (`src/components/prompt_editor.py`)
+- Fixed app boot crash caused by duplicate kwargs passed into CTk buttons:
+  - `preview_btn`: duplicate `fg_color` path
+  - `save_btn`: duplicate `corner_radius`
+- Verified startup after fix (`python main.py` launches successfully).
+
+---
+
 ## Files touched (combined)
 - `src/app.py`
 - `src/components/dialogs.py`
+- `src/components/prompt_list.py`
 - `src/components/prompt_editor.py`
 - `src/components/tag_chips.py`
 - `src/config.py`
+- `src/models.py`
 - `src/storage.py`
+- `UI_POLISH.md`
 
 ## Next-pass checklist
 - Clean duplicate legacy methods in `prompt_editor.py`.
@@ -85,3 +143,5 @@ Quick history in clear step order.
   - snippet insert
   - variable fill
   - tag chip layout stability
+  - version creation + version restore flows
+  - multi-select keyboard interactions

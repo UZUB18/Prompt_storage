@@ -150,6 +150,9 @@ class Storage:
         if "pinned" in item and not isinstance(item.get("pinned"), bool):
             raise ValueError(f"Item {index} has invalid 'pinned' (boolean expected).")
 
+        if "custom_category" in item and not isinstance(item.get("custom_category"), str):
+            raise ValueError(f"Item {index} has invalid 'custom_category' (string expected).")
+
         if "history" in item:
             history = item.get("history")
             if not isinstance(history, list):
@@ -163,6 +166,21 @@ class Storage:
         for field_name in ("id", "created_at", "updated_at"):
             if field_name in item and not isinstance(item.get(field_name), str):
                 raise ValueError(f"Item {index} has invalid '{field_name}' (string expected).")
+
+        if "version_group_id" in item and not isinstance(item.get("version_group_id"), str):
+            raise ValueError(f"Item {index} has invalid 'version_group_id' (string expected).")
+
+        if "version_number" in item:
+            version_number = item.get("version_number")
+            if not isinstance(version_number, int) or version_number < 1:
+                raise ValueError(f"Item {index} has invalid 'version_number' (positive integer expected).")
+
+        if "previous_version_id" in item:
+            previous_version_id = item.get("previous_version_id")
+            if previous_version_id is not None and not isinstance(previous_version_id, str):
+                raise ValueError(
+                    f"Item {index} has invalid 'previous_version_id' (string or null expected)."
+                )
 
     def _validate_prompt_list(self, data: List[dict]):
         """Validate the prompt list structure."""
@@ -289,6 +307,8 @@ class Storage:
             return True
         if existing.category != updated.category:
             return True
+        if (getattr(existing, "custom_category", "") or "") != (getattr(updated, "custom_category", "") or ""):
+            return True
         if existing.tags != updated.tags:
             return True
         if existing.sensitive != updated.sensitive:
@@ -302,6 +322,7 @@ class Storage:
             "name": prompt.name,
             "content": prompt.content,
             "category": prompt.category.value,
+            "custom_category": getattr(prompt, "custom_category", "") or "",
             "tags": list(prompt.tags),
             "sensitive": bool(prompt.sensitive),
             "pinned": bool(prompt.pinned),
